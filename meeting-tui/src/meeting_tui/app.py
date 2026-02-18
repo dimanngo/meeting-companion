@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import signal
 from datetime import datetime
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header
 
 from meeting_tui.audio.capture import AudioCapture
@@ -22,6 +25,11 @@ from meeting_tui.transcription.engine import TranscriptionEngine
 from meeting_tui.widgets.chat_pane import ChatPane, ChatSubmitted
 from meeting_tui.widgets.status_bar import StatusBar
 from meeting_tui.widgets.transcript_pane import TranscriptPane
+
+log = logging.getLogger(__name__)
+
+LLM_MAX_RETRIES = 3
+LLM_RETRY_DELAY = 1.0  # seconds, doubles on each retry
 
 
 def create_llm_backend(config: AppConfig) -> LLMBackend:
@@ -73,6 +81,7 @@ class MeetingApp(App):
         Binding("ctrl+r", "toggle_recording", "Record", show=True),
         Binding("ctrl+e", "export", "Export", show=True),
         Binding("ctrl+l", "switch_focus", "Switch Focus", show=True),
+        Binding("ctrl+s", "label_speaker", "Speaker Label", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
 
@@ -83,6 +92,7 @@ class MeetingApp(App):
         self._recording_start: datetime | None = None
         self._word_count = 0
         self._segment_count = 0
+        self._current_speaker: str | None = None
 
         # Pipeline components (initialized on mount)
         self._audio_capture: AudioCapture | None = None
@@ -105,6 +115,10 @@ class MeetingApp(App):
 
     def on_mount(self) -> None:
         """Initialize pipeline components after the app is mounted."""
+        # Register signal handlers for graceful shutdown
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            asyncio.get_event_loop().add_signal_handler(sig, self._signal_shutdown)
+
         self._llm = create_llm_backend(self.config)
         self._engine = TranscriptionEngine(self.config.transcription)
         self._cleaner = TranscriptCleaner(self._llm)
@@ -129,6 +143,10 @@ class MeetingApp(App):
         elif backend == "gemini":
             status.model_name = self.config.llm.gemini_model
 
+    def _signal_shutdown(self) -> None:
+        """Handle SIGINT/SIGTERM for graceful shutdown."""
+        self.run_worker(self.action_quit(), name="signal-shutdown")
+
     def action_toggle_recording(self) -> None:
         """Start or stop recording."""
         if self._recording:
@@ -142,10 +160,22 @@ class MeetingApp(App):
         self._recording_start = datetime.now()
 
         self._audio_capture = AudioCapture(self.config.audio, loop=asyncio.get_event_loop())
-        self._audio_capture.start()
+        try:
+            self._audio_capture.start()
+        except Exception as e:
+            self._recording = False
+            self.notify(f"Mic error: {e}. Check --list-devices.", severity="error")
+            log.error("Failed to start audio capture: %s", e)
+            return
 
         status = self.query_one(StatusBar)
         status.recording = True
+
+        # Show model loading notification (first run triggers downloads)
+        self.notify(
+            f"Loading Whisper '{self.config.transcription.model_size}' model (first run may download)...",
+            timeout=5,
+        )
 
         # Start the timer
         self._timer_handle = self.set_interval(1.0, self._update_timer)
@@ -158,7 +188,10 @@ class MeetingApp(App):
         self._recording = False
 
         if self._audio_capture:
-            self._audio_capture.stop()
+            try:
+                self._audio_capture.stop()
+            except Exception as e:
+                log.warning("Error stopping audio capture: %s", e)
 
         status = self.query_one(StatusBar)
         status.recording = False
@@ -187,17 +220,53 @@ class MeetingApp(App):
                 chunk = await asyncio.wait_for(self._audio_capture.queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
+            except Exception as e:
+                # Mic disconnection — attempt recovery
+                log.warning("Audio capture error: %s — attempting recovery", e)
+                self.notify("Mic disconnected. Attempting recovery...", severity="warning")
+                await self._attempt_mic_recovery()
+                continue
 
-            segment = await self._vad.process_chunk(chunk)
+            try:
+                segment = await self._vad.process_chunk(chunk)
+            except Exception as e:
+                log.error("VAD error: %s", e)
+                continue
+
             if segment is not None:
                 await self._process_segment(segment)
+
+    async def _attempt_mic_recovery(self) -> None:
+        """Try to recover from a mic disconnection."""
+        if self._audio_capture:
+            self._audio_capture.stop()
+
+        for attempt in range(3):
+            await asyncio.sleep(2.0 * (attempt + 1))
+            try:
+                self._audio_capture = AudioCapture(
+                    self.config.audio, loop=asyncio.get_event_loop()
+                )
+                self._audio_capture.start()
+                self.notify("Mic reconnected!", severity="information")
+                return
+            except Exception:
+                log.warning("Mic recovery attempt %d failed", attempt + 1)
+
+        self.notify("Mic recovery failed. Press Ctrl+R to retry.", severity="error")
+        self._stop_recording()
 
     async def _process_segment(self, segment) -> None:
         """Process a speech segment: transcribe, clean, display, save."""
         # Transcribe
-        result = await self._engine.transcribe(
-            segment.audio, segment.start_time, segment.end_time
-        )
+        try:
+            result = await self._engine.transcribe(
+                segment.audio, segment.start_time, segment.end_time
+            )
+        except Exception as e:
+            log.error("Transcription error: %s", e)
+            self.notify(f"Transcription error: {e}", severity="error")
+            return
 
         if not result.text.strip():
             return
@@ -207,15 +276,18 @@ class MeetingApp(App):
         hours, minutes = divmod(minutes, 60)
         timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+        # Prepend speaker label if set
+        speaker_prefix = f"[{self._current_speaker}] " if self._current_speaker else ""
+
         # Show raw text immediately
         transcript_pane = self.query_one(TranscriptPane)
-        transcript_pane.add_raw_segment(timestamp, result.text)
+        transcript_pane.add_raw_segment(timestamp, f"{speaker_prefix}{result.text}")
 
-        # Clean via LLM
-        try:
-            clean_text = await self._cleaner.clean(result.text)
-        except Exception:
-            clean_text = result.text  # Fallback to raw on LLM error
+        # Clean via LLM with retry and backoff
+        clean_text = await self._clean_with_retry(result.text)
+
+        if speaker_prefix:
+            clean_text = f"{speaker_prefix}{clean_text}"
 
         # Update display with clean text
         transcript_pane.add_segment(timestamp, clean_text)
@@ -242,17 +314,53 @@ class MeetingApp(App):
         status.word_count = self._word_count
         status.segment_count = self._segment_count
 
+    async def _clean_with_retry(self, raw_text: str) -> str:
+        """Clean text via LLM with exponential backoff retry."""
+        delay = LLM_RETRY_DELAY
+        for attempt in range(LLM_MAX_RETRIES):
+            try:
+                return await self._cleaner.clean(raw_text)
+            except Exception as e:
+                log.warning("LLM cleanup attempt %d failed: %s", attempt + 1, e)
+                if attempt < LLM_MAX_RETRIES - 1:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+        # All retries failed — return raw text
+        log.error("LLM cleanup failed after %d retries, using raw text", LLM_MAX_RETRIES)
+        return raw_text
+
     async def on_chat_submitted(self, event: ChatSubmitted) -> None:
         """Handle a chat message from the user."""
         chat_pane = self.query_one(ChatPane)
 
-        try:
-            chat_pane.begin_assistant_stream()
-            async for token in self._chat_manager.stream_message(event.text):
-                chat_pane.append_stream_token(token)
-            chat_pane.end_assistant_stream()
-        except Exception as e:
-            chat_pane.add_assistant_message(f"Error: {e}")
+        delay = LLM_RETRY_DELAY
+        for attempt in range(LLM_MAX_RETRIES):
+            try:
+                chat_pane.begin_assistant_stream()
+                async for token in self._chat_manager.stream_message(event.text):
+                    chat_pane.append_stream_token(token)
+                chat_pane.end_assistant_stream()
+                return
+            except Exception as e:
+                log.warning("Chat LLM attempt %d failed: %s", attempt + 1, e)
+                if attempt < LLM_MAX_RETRIES - 1:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    chat_pane.add_assistant_message(f"Error after {LLM_MAX_RETRIES} retries: {e}")
+
+    def action_label_speaker(self) -> None:
+        """Prompt for a speaker label to tag subsequent transcript segments."""
+        self.push_screen(SpeakerLabelScreen(), callback=self._set_speaker_label)
+
+    def _set_speaker_label(self, label: str | None) -> None:
+        """Set or clear the current speaker label."""
+        if label:
+            self._current_speaker = label
+            self.notify(f"Speaker label set: {label}")
+        else:
+            self._current_speaker = None
+            self.notify("Speaker label cleared")
 
     def action_export(self) -> None:
         """Force-save the current transcript."""
@@ -268,11 +376,63 @@ class MeetingApp(App):
             chat_input.focus()
 
     async def action_quit(self) -> None:
-        """Graceful shutdown."""
+        """Graceful shutdown — save everything before exiting."""
         if self._recording:
             self._stop_recording()
         if self._transcript_writer:
             self._transcript_writer.finalize()
+        # Save chat history alongside transcript
+        if self._chat_manager and self._chat_manager.history:
+            self._save_chat_history()
         if self._llm and hasattr(self._llm, "close"):
-            await self._llm.close()
+            try:
+                await self._llm.close()
+            except Exception:
+                pass
         self.exit()
+
+    def _save_chat_history(self) -> None:
+        """Save chat history to a Markdown file next to the transcript."""
+        if not self._transcript_writer:
+            return
+        chat_path = self._transcript_writer.filepath.with_name(
+            self._transcript_writer.filepath.stem + "_chat.md"
+        )
+        lines = [f"# Chat History — {self.config.persistence.title}\n\n"]
+        for msg in self._chat_manager.history:
+            prefix = "**You:**" if msg.role == "user" else "**AI:**"
+            lines.append(f"{prefix} {msg.content}\n\n")
+        lines.append(f"\n---\n\n*Chat ended at {datetime.now().strftime('%H:%M')}*\n")
+        chat_path.write_text("".join(lines))
+
+
+class SpeakerLabelScreen(ModalScreen[str | None]):
+    """Modal screen for entering a speaker label."""
+
+    DEFAULT_CSS = """
+    SpeakerLabelScreen {
+        align: center middle;
+    }
+    #speaker-dialog {
+        width: 50;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #speaker-dialog Static {
+        margin-bottom: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import Vertical
+        from textual.widgets import Input, Static
+
+        with Vertical(id="speaker-dialog"):
+            yield Static("Enter speaker name (empty to clear):")
+            yield Input(placeholder="e.g., Alice, Bob...", id="speaker-input")
+
+    def on_input_submitted(self, event) -> None:
+        value = event.value.strip()
+        self.dismiss(value if value else None)

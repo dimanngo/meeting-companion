@@ -46,7 +46,13 @@ def main(
         try:
             cli_overrides.setdefault("audio", {})["device"] = int(device)
         except ValueError:
-            cli_overrides.setdefault("audio", {})["device"] = device
+            # Partial name match — find the device index by name substring
+            resolved = _resolve_device_by_name(device)
+            if resolved is not None:
+                cli_overrides.setdefault("audio", {})["device"] = resolved
+            else:
+                click.echo(f"Error: No audio input device matching '{device}'. Use --list-devices.")
+                raise SystemExit(1)
     if model is not None:
         cli_overrides.setdefault("transcription", {})["model_size"] = model
     if output is not None:
@@ -67,6 +73,24 @@ def main(
 
     app = MeetingApp(config)
     app.run()
+
+
+def _resolve_device_by_name(name: str) -> int | None:
+    """Resolve a device name (partial, case-insensitive) to a device index."""
+    devices = sd.query_devices()
+    name_lower = name.lower()
+    matches = []
+    for i, dev in enumerate(devices):
+        if dev["max_input_channels"] > 0 and name_lower in dev["name"].lower():
+            matches.append(i)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        click.echo(f"Ambiguous device name '{name}'. Matches:")
+        for i in matches:
+            click.echo(f"  [{i}] {devices[i]['name']}")
+        return None
+    return None
 
 
 def _print_devices() -> None:
