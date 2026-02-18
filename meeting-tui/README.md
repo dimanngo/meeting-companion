@@ -109,8 +109,9 @@ That's it. The app opens in your terminal. Press **Ctrl+R** to start recording.
    #   ...
    #   * = default device
 
-   # Use a specific device
+   # Use a specific device by index or name (partial match)
    uv run meeting-tui --device 0
+   uv run meeting-tui --device "MacBook"
    ```
 
 3. **Press `Ctrl+R`** to start recording. The status bar shows `● Recording` and a running timer.
@@ -138,6 +139,7 @@ While the meeting is running (or after stopping), use the **Chat** pane on the r
 | `Ctrl+R` | Start / stop recording |
 | `Ctrl+E` | Export — save transcript now (also auto-saves continuously) |
 | `Ctrl+L` | Switch focus between transcript pane and chat input |
+| `Ctrl+S` | Set speaker label — tags subsequent transcript segments with a name |
 | `Tab` | Cycle focus across all UI elements |
 | `Ctrl+Q` | Quit (gracefully saves transcript and chat history) |
 
@@ -390,6 +392,55 @@ The JSON file enables programmatic access for search, analytics, or re-processin
 | Transcription is slow | Use a smaller model: `--model tiny` or `--model base` |
 | Poor transcription quality | Use a larger model: `--model small` or `--model medium` |
 | High memory usage | Ollama models use 4–8 GB RAM. Use `phi3:mini` (2.3 GB) for less memory |
+| Mic disconnected mid-meeting | The app auto-retries 3 times with backoff. If recovery fails, press `Ctrl+R` to restart |
+| LLM errors / timeouts | Requests are retried 3 times with exponential backoff. Raw text is used if cleanup fails |
+
+---
+
+## Development & Testing
+
+### Setup
+
+```bash
+cd meeting-tui
+
+# Install all dependencies including dev tools
+uv sync --extra dev
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
+
+# Run a specific test file
+uv run pytest tests/test_audio_capture.py
+uv run pytest tests/test_transcription.py
+uv run pytest tests/test_llm_backends.py
+uv run pytest tests/test_chat_manager.py
+uv run pytest tests/test_integration.py
+
+# Run a specific test class or method
+uv run pytest tests/test_audio_capture.py::TestVADProcessor
+uv run pytest tests/test_chat_manager.py::TestChatManager::test_send_message
+```
+
+### Test Suite Overview
+
+| Test File | Tests | What It Covers |
+|---|---|---|
+| `test_audio_capture.py` | 15 | AudioCapture (mock sounddevice), VAD state machine |
+| `test_transcription.py` | 9 | Transcription engine (mock model), LLM cleaner (mock LLM) |
+| `test_llm_backends.py` | 11 | Ollama, OpenAI, Gemini backends (mock HTTP) |
+| `test_chat_manager.py` | 11 | Context assembly, truncation, history management |
+| `test_integration.py` | 2 | Full pipeline: audio → transcribe → clean → save → chat |
+| **Total** | **48** | |
+
+All tests use mocks — no microphone, GPU, or API keys required to run the test suite.
 
 ## License
 
