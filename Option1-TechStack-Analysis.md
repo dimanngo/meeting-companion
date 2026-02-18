@@ -131,12 +131,13 @@ Takes raw transcription (with errors, filler words, grammar issues) and produces
 | **[llama.cpp](https://github.com/ggerganov/llama.cpp)** (via [llama-cpp-python](https://github.com/abramson/llama-cpp-python)) | Local | C++ LLM inference engine with Python bindings. | In-process (no server needed). Metal acceleration on macOS. More control over inference parameters. Can be embedded directly. | More complex setup. Must manage model files manually. Less convenient than Ollama for model management. |
 | **[MLX](https://github.com/ml-explore/mlx)** (via [mlx-lm](https://github.com/ml-explore/mlx-examples)) | Local | Apple's ML framework optimized for Apple Silicon. | Fastest inference on Apple Silicon. Unified memory advantage. Growing model ecosystem. | Apple Silicon only. Python-only. Smaller community than llama.cpp. Fewer model formats. |
 | **[OpenAI API](https://platform.openai.com/) (`gpt-4o-mini`)** | Cloud | OpenAI's hosted LLM API. | Highest quality cleanup. Fast. No local resources. | Requires internet. Costs ~$0.15/1M input tokens. Privacy concern (transcript sent to cloud). Rate limits. |
+| **[Google Gemini API](https://ai.google.dev/) (`gemini-3-flash-preview`)** | Cloud | Google's latest Gemini 3 Flash model. | Best price-performance cloud model ($0.50/1M input, $3/1M output). 1M token context — can process entire long meetings without truncation. Dynamic thinking levels (`low` for fast cleanup, `high` for deeper reasoning). Free tier available. Good quality for structured tasks like cleanup. | Requires internet. Privacy concern. Currently in preview. |
 | **[Anthropic API](https://www.anthropic.com/) (`claude-3.5-haiku`)** | Cloud | Anthropic's hosted LLM API. | High quality. Fast (Haiku). Good at structured tasks. | Requires internet. Costs ~$0.25/1M input tokens. Privacy concern. |
 | **Rule-based (regex + NLP)** | Local | Custom pipeline: remove filler words, fix punctuation, sentence segmentation. | Zero dependencies. Instant. No model needed. Deterministic. | Limited quality. Can't fix semantic errors. No context understanding. Brittle rules. |
 
-### Recommendation: **Ollama (primary) + OpenAI API (optional fallback)**
+### Recommendation: **Ollama (primary) + Gemini 3 Flash (optimal cloud fallback)**
 
-For transcript cleanup, Ollama with a small, fast model like `mistral` or `phi-3` is ideal. Cleanup is a simpler task than general chat — it doesn't need the largest models. A 7B model can effectively remove filler words, fix grammar, and add punctuation.
+For transcript cleanup, Ollama with a small, fast model like `mistral` or `phi-3` is ideal. Cleanup is a simpler task than general chat — it doesn't need the largest models. A 7B model can effectively remove filler words, fix grammar, and add punctuation. For cloud fallback, **Gemini 3 Flash** is the best value — at $0.50/1M input tokens it's cheaper than both OpenAI and the previous Gemini 2 generation, and the `thinking_level: low` setting minimizes latency for simple cleanup tasks.
 
 **Recommended models for cleanup (via Ollama):**
 
@@ -158,14 +159,35 @@ Powers the interactive chat where users query the meeting context.
 | Candidate | Type | Description | Pros | Cons |
 |---|---|---|---|---|
 | **[Ollama](https://ollama.ai/)** | Local | Same as above. | Shared with cleanup — single server. Good model variety. Streaming support. Privacy-preserving. | Quality ceiling lower than cloud models. Context window limited (most models: 4K-32K tokens). Long meetings may exceed context. |
-| **[OpenAI API](https://platform.openai.com/) (`gpt-4o`, `gpt-4o-mini`)** | Cloud | OpenAI's hosted models. | Highest quality reasoning. Large context windows (128K tokens). Fast. | Cost: $2.50-$10/1M input tokens. Requires internet. Privacy. |
+| **[Google Gemini API](https://ai.google.dev/) (`gemini-3-flash-preview`, `gemini-3-pro-preview`)** | Cloud | Google's Gemini 3 family (Feb 2026). Flash: best price-performance. Pro: most advanced reasoning. | **Gemini 3 Flash:** $0.50/1M input, $3/1M output — best cloud value. 1M token context. Dynamic thinking levels (`minimal`/`low`/`medium`/`high`). Free tier available. **Gemini 3 Pro:** $2/1M input, $12/1M output. Most powerful multimodal reasoning. 1M context. Both support streaming and context caching. | Requires internet. Privacy. Currently in preview. Thinking tokens count toward output cost. |
+| **[OpenAI API](https://platform.openai.com/) (`gpt-4o`, `gpt-4o-mini`)** | Cloud | OpenAI's hosted models. | High quality reasoning. 128K context window. Fast. Well-established ecosystem. | Cost: $0.15–$10/1M input tokens. Requires internet. Privacy. Context window (128K) smaller than Gemini (1M). |
 | **[Anthropic API](https://www.anthropic.com/) (`claude-3.5-sonnet`)** | Cloud | Anthropic's Claude models. | Excellent at analysis and summarization. 200K context window. Strong instruction following. | Cost: $3/1M input tokens. Requires internet. Privacy. |
-| **[Google Gemini API](https://ai.google.dev/)** | Cloud | Google's Gemini models. | 1M+ context window (Gemini 1.5 Pro). Good for very long meetings. Competitive pricing. | Requires internet. Privacy. Less consistent than OpenAI/Anthropic for some tasks. |
+| **[Google Gemini API](https://ai.google.dev/) (previous gen, `gemini-2.5-flash`)** | Cloud | Previous generation. Still available. | Cheaper than Gemini 3 Pro. 1M context. Mature/stable. | Being superseded by Gemini 3. Will eventually be deprecated. |
 | **[llama-cpp-python](https://github.com/abramson/llama-cpp-python)** with OpenAI-compatible server | Local | llama.cpp with built-in OpenAI-compatible API server. | Drop-in replacement for OpenAI API. In-process or server mode. | Same local model limitations as Ollama. More setup than Ollama. |
 
-### Recommendation: **Ollama (default) + configurable cloud backends**
+### Recommendation: **Ollama (default) + Gemini 3 (recommended cloud) + OpenAI (alternative cloud)**
 
-Use Ollama as the default for privacy and offline capability. Provide configuration to switch to OpenAI or Anthropic for users who want higher quality or larger context windows. The LLM abstraction layer in the code should make backends interchangeable.
+Use Ollama as the default for privacy and offline capability. For cloud backends, **Gemini 3 is the recommended first choice** due to:
+
+1. **1M token context window** — eliminates rolling summaries entirely, even for all-day meetings
+2. **Best pricing** — Flash at $0.50/1M input is 3x cheaper than OpenAI's gpt-4o-mini
+3. **Dynamic thinking levels** — use `low`/`minimal` for fast cleanup, `high` for deep meeting analysis
+4. **Context caching** — cache the growing transcript to reduce costs for repeated chat queries ($0.05/1M cached tokens for Flash)
+5. **Free tier** — available for development and testing
+
+OpenAI remains available as an alternative for users who prefer it.
+
+**Cloud backend comparison for chat (as of Feb 2026):**
+
+| Backend | Context Window | Input Cost | Output Cost | Thinking Control | Best For |
+|---|---|---|---|---|---|
+| Gemini 3 Flash | 1M tokens | $0.50/1M | $3/1M | `minimal`/`low`/`medium`/`high` | Long meetings, cost-efficiency, tunable latency |
+| Gemini 3 Pro | 1M tokens | $2/1M (≤200K), $4/1M (>200K) | $12/1M (≤200K), $18/1M (>200K) | `low`/`high` | Complex reasoning, deep analysis |
+| Gemini 2.5 Pro | 1M tokens | $1.25/1M (≤200K) | $10/1M (≤200K) | Yes | Stable production alternative |
+| OpenAI gpt-4o-mini | 128K tokens | $0.15/1M | $0.60/1M | No | Short meetings, consistency |
+| OpenAI gpt-4o | 128K tokens | $2.50/1M | $10/1M | No | High reasoning quality (within 128K) |
+
+> **Note on Gemini 3 thinking costs:** Thinking tokens are included in output token billing. When using `thinking_level: high`, output costs may increase significantly for complex reasoning tasks. Use `low` for cleanup and `high` selectively for chat queries that require deep analysis.
 
 **Context window strategy for long meetings:**
 
@@ -176,8 +198,9 @@ Use Ollama as the default for privacy and offline capability. Provide configurat
 | 1 hour | ~10,000 | ~14,000 | Fits in 16K+ models; truncate for 8K |
 | 2 hours | ~20,000 | ~28,000 | Requires 32K model or rolling summary |
 | 4 hours | ~40,000 | ~56,000 | Requires cloud (128K+) or aggressive summarization |
+| 8 hours | ~80,000 | ~112,000 | Gemini 3 (1M context) — no summarization needed |
 
-For local models with limited context, implement a **rolling summary strategy**: summarize older transcript sections and keep recent sections verbatim.
+For local models with limited context, implement a **rolling summary strategy**: summarize older transcript sections and keep recent sections verbatim. **With Gemini 3's 1M token context window, this strategy is unnecessary** — the entire transcript for even an 8-hour meeting fits comfortably. Additionally, Gemini 3's **context caching** feature can cache the growing transcript, reducing costs for repeated chat queries during the same meeting.
 
 ---
 
@@ -253,8 +276,8 @@ uv is the modern choice for 2026. It's dramatically faster than alternatives, ha
 | **Audio Capture** | sounddevice 0.5.x | miniaudio | Best API, numpy integration, cross-platform |
 | **VAD** | Silero VAD (ONNX Runtime) | webrtcvad | Best accuracy, small footprint with ONNX |
 | **Transcription** | faster-whisper 1.1.x | whisper.cpp (pywhispercpp) | Best speed/accuracy/API balance; `small` model recommended |
-| **Cleanup LLM** | Ollama (mistral/phi-3) | OpenAI gpt-4o-mini | Local, private, shared with chat backend |
-| **Chat LLM** | Ollama (default) + cloud option | Anthropic Claude 3.5 | Offline-first with configurable cloud fallback |
+| **Cleanup LLM** | Ollama (mistral/phi-3) | Gemini 3 Flash (`thinking_level: low`) | Local, private, shared with chat backend; Gemini 3 Flash as best cloud value |
+| **Chat LLM** | Ollama (default) + Gemini 3 (recommended cloud) | OpenAI gpt-4o-mini | Offline-first; Gemini 3's 1M context eliminates summarization; dynamic thinking for cost/quality control |
 | **Persistence** | Markdown + JSON sidecar | SQLite | Human-readable + structured, zero dependencies |
 | **Configuration** | TOML + CLI + env vars | .env only | Flexible, follows Python conventions |
 | **Package Management** | uv | pip + venv | Fast, modern, standard-compliant |
@@ -275,6 +298,7 @@ ML / Transcription:
 LLM Integration:
   httpx >= 0.27           # HTTP client for Ollama + cloud APIs
   openai >= 1.50          # OpenAI SDK (optional, for cloud backend)
+  google-genai >= 1.0     # Google Gemini SDK (optional, recommended cloud backend)
 
 Utilities:
   rich >= 13.0            # Markdown rendering (bundled with Textual)

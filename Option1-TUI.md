@@ -49,7 +49,7 @@ A single Python application with a rich split-pane terminal interface built with
 | Voice Activity Detection | [silero-vad](https://github.com/snakers4/silero-vad) via [ONNX Runtime](https://onnxruntime.ai/) | Detect speech vs silence to chunk audio intelligently (lightweight ONNX backend, ~30MB) |
 | Transcription | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | CTranslate2-based Whisper, fast on CPU/GPU |
 | LLM (local) | [Ollama](https://ollama.ai/) + `mistral` or `phi-3` or `llama3.1:8b` | Transcript cleanup + chat |
-| LLM (cloud) | OpenAI API (`gpt-4o-mini`) | Alternative/fallback for cleanup + chat |
+| LLM (cloud) | [Google Gemini API](https://ai.google.dev/) (`gemini-3-flash-preview`, `gemini-3-pro-preview`) | Alternative/fallback for cleanup + chat. Gemini 3 Flash: best price-performance with 1M context. Gemini 3 Pro: most advanced reasoning. Both support dynamic thinking levels |
 | Persistence | Markdown + JSON sidecar | Clean `.md` transcript + structured `.json` (timestamps, confidence, raw/clean pairs) |
 | Config | TOML + CLI overrides + env vars | `~/.config/meeting-tui/config.toml` for defaults, `click` CLI flags for overrides, env vars for secrets (API keys). Precedence: CLI > env > config > defaults |
 | Package Management | `uv` | Fast Python package/project manager, standard `pyproject.toml` |
@@ -79,7 +79,8 @@ meeting-tui/
 │       │   ├── __init__.py
 │       │   ├── base.py              # Abstract LLM interface
 │       │   ├── ollama_backend.py    # Ollama local backend
-│       │   └── openai_backend.py    # OpenAI API backend
+│       │   ├── openai_backend.py    # OpenAI API backend
+│       │   └── gemini_backend.py    # Google Gemini API backend
 │       ├── chat/
 │       │   ├── __init__.py
 │       │   └── manager.py           # Chat context manager, history
@@ -123,7 +124,8 @@ meeting-tui/
 - [ ] Implement `llm/base.py` — abstract interface with `complete(prompt, context) -> str` and `stream(prompt, context) -> AsyncIterator[str]`
 - [ ] Implement `llm/ollama_backend.py` — Ollama HTTP API client (uses `httpx`), supports streaming
 - [ ] Implement `llm/openai_backend.py` — OpenAI API client (uses `openai` SDK), supports streaming
-- [ ] Config-driven backend selection: user picks `ollama` or `openai` in config
+- [ ] Implement `llm/gemini_backend.py` — Google Gemini API client (uses `google-genai` SDK), supports streaming. Leverage Gemini 3's 1M token context window for long meetings without rolling summary. Support configurable `thinking_level` (`low` for cleanup, `high` for chat reasoning)
+- [ ] Config-driven backend selection: user picks `ollama`, `openai`, or `gemini` in config
 - [ ] Write unit tests for both backends (mock HTTP responses)
 
 ### Phase 4: Chat Manager
@@ -151,7 +153,7 @@ meeting-tui/
 - [ ] Add `--device` CLI flag (via `click`) to list and select audio input devices
 - [ ] Add `--model` CLI flag to override transcription model size
 - [ ] Add `--output` CLI flag for transcript output directory
-- [ ] Add `--llm-backend` CLI flag to select LLM backend (`ollama`, `openai`, `anthropic`)
+- [ ] Add `--llm-backend` CLI flag to select LLM backend (`ollama`, `openai`, `gemini`)
 - [ ] Implement graceful shutdown: flush transcript, save chat history
 - [ ] Add error handling: mic disconnection recovery, LLM timeout/retry
 - [ ] Add optional speaker diarization hint (manual speaker labels via hotkey)
@@ -182,6 +184,7 @@ dependencies = [
     "silero-vad>=5.1",
     "httpx>=0.27",
     "openai>=1.50",
+    "google-genai>=1.0",
     "rich>=13.0",
     "click>=8.1",
     "python-dotenv>=1.0",
