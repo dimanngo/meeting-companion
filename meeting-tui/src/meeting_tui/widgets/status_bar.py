@@ -25,9 +25,13 @@ class StatusBar(Static):
     word_count: reactive[int] = reactive(0)
     segment_count: reactive[int] = reactive(0)
     model_name: reactive[str] = reactive("—")
+    activity: reactive[str] = reactive("")  # Background activity indicator
 
     def render(self) -> str:
-        indicator = "● Recording" if self.recording else "⏸ Paused"
+        if self.activity:
+            return f" ⏳ {self.activity} │ Model: {self.model_name} "
+
+        indicator = "● Recording" if self.recording else "⏸ Ready"
         hours, remainder = divmod(self.elapsed_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"

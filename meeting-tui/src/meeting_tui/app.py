@@ -89,6 +89,8 @@ class MeetingApp(App):
         super().__init__()
         self.config = config
         self._recording = False
+        self._loading = False  # True while models are loading
+        self._models_ready = False  # True once all models are loaded
         self._recording_start: datetime | None = None
         self._word_count = 0
         self._segment_count = 0
@@ -149,6 +151,9 @@ class MeetingApp(App):
 
     def action_toggle_recording(self) -> None:
         """Start or stop recording."""
+        if self._loading:
+            self.notify("Models are still loading, please wait...", severity="warning")
+            return
         if self._recording:
             self._stop_recording()
         else:
@@ -156,56 +161,62 @@ class MeetingApp(App):
 
     def _start_recording(self) -> None:
         """Start the audio capture and transcription pipeline."""
-        self._recording = True
-        self._recording_start = datetime.now()
+        self._loading = True
 
         status = self.query_one(StatusBar)
-        status.recording = True
+        status.activity = "Preparing models..."
 
         # Pre-load models in background, then start audio capture
-        self.notify("Loading models... please wait", timeout=10)
         self.run_worker(self._load_and_start_pipeline(), name="startup", exclusive=True)
 
     async def _load_and_start_pipeline(self) -> None:
         """Load ML models in background thread, then start audio capture and pipeline."""
         loop = asyncio.get_event_loop()
+        status = self.query_one(StatusBar)
 
         # Load VAD model (downloads from GitHub on first run)
-        self.notify("Loading VAD model...", timeout=10)
-        try:
-            await loop.run_in_executor(None, self._vad._load_model)
-        except Exception as e:
-            log.error("Failed to load VAD model: %s", e)
-            self.notify(f"VAD model error: {e}", severity="error")
-            self._recording = False
-            self.query_one(StatusBar).recording = False
-            return
+        if not self._models_ready:
+            status.activity = "Loading VAD model (first run may download)..."
+            try:
+                await loop.run_in_executor(None, self._vad._load_model)
+            except Exception as e:
+                log.error("Failed to load VAD model: %s", e)
+                self.notify(f"VAD model error: {e}", severity="error")
+                self._loading = False
+                status.activity = ""
+                return
 
-        # Load Whisper model (downloads on first run)
-        self.notify(
-            f"Loading Whisper '{self.config.transcription.model_size}' model...",
-            timeout=10,
-        )
-        try:
-            await loop.run_in_executor(None, self._engine._load_model)
-        except Exception as e:
-            log.error("Failed to load Whisper model: %s", e)
-            self.notify(f"Whisper model error: {e}", severity="error")
-            self._recording = False
-            self.query_one(StatusBar).recording = False
-            return
+            # Load Whisper model (downloads on first run)
+            status.activity = f"Loading Whisper '{self.config.transcription.model_size}' model..."
+            try:
+                await loop.run_in_executor(None, self._engine._load_model)
+            except Exception as e:
+                log.error("Failed to load Whisper model: %s", e)
+                self.notify(f"Whisper model error: {e}", severity="error")
+                self._loading = False
+                status.activity = ""
+                return
 
-        # Models loaded — now start audio capture
+            self._models_ready = True
+
+        # Models loaded — start audio capture
+        status.activity = "Starting microphone..."
         self._audio_capture = AudioCapture(self.config.audio, loop=loop)
         try:
             self._audio_capture.start()
         except Exception as e:
-            self._recording = False
-            self.query_one(StatusBar).recording = False
+            self._loading = False
+            status.activity = ""
             self.notify(f"Mic error: {e}. Check --list-devices.", severity="error")
             log.error("Failed to start audio capture: %s", e)
             return
 
+        # Everything ready — switch to recording state
+        self._loading = False
+        self._recording = True
+        self._recording_start = datetime.now()
+        status.activity = ""
+        status.recording = True
         self.notify("Recording started!", timeout=3)
 
         # Start the timer
@@ -315,7 +326,10 @@ class MeetingApp(App):
         transcript_pane.add_raw_segment(timestamp, f"{speaker_prefix}{result.text}")
 
         # Clean via LLM with retry and backoff
+        status = self.query_one(StatusBar)
+        status.activity = "Cleaning transcript..."
         clean_text = await self._clean_with_retry(result.text)
+        status.activity = ""
 
         if speaker_prefix:
             clean_text = f"{speaker_prefix}{clean_text}"
@@ -364,13 +378,20 @@ class MeetingApp(App):
         """Handle a chat message from the user."""
         chat_pane = self.query_one(ChatPane)
 
+        if self._loading:
+            chat_pane.add_assistant_message("⏳ Models are still loading, please wait...")
+            return
+
         delay = LLM_RETRY_DELAY
+        status = self.query_one(StatusBar)
         for attempt in range(LLM_MAX_RETRIES):
             try:
+                status.activity = "AI is thinking..."
                 chat_pane.begin_assistant_stream()
                 async for token in self._chat_manager.stream_message(event.text):
                     chat_pane.append_stream_token(token)
                 chat_pane.end_assistant_stream()
+                status.activity = ""
                 return
             except Exception as e:
                 log.warning("Chat LLM attempt %d failed: %s", attempt + 1, e)
@@ -378,10 +399,14 @@ class MeetingApp(App):
                     await asyncio.sleep(delay)
                     delay *= 2
                 else:
+                    status.activity = ""
                     chat_pane.add_assistant_message(f"Error after {LLM_MAX_RETRIES} retries: {e}")
 
     def action_label_speaker(self) -> None:
         """Prompt for a speaker label to tag subsequent transcript segments."""
+        if self._loading:
+            self.notify("Models are still loading, please wait...", severity="warning")
+            return
         self.push_screen(SpeakerLabelScreen(), callback=self._set_speaker_label)
 
     def _set_speaker_label(self, label: str | None) -> None:
@@ -395,6 +420,9 @@ class MeetingApp(App):
 
     def action_export(self) -> None:
         """Force-save the current transcript."""
+        if self._loading:
+            self.notify("Models are still loading, please wait...", severity="warning")
+            return
         if self._transcript_writer:
             self.notify(f"Transcript saved to {self._transcript_writer.filepath}")
 
