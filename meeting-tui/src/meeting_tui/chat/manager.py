@@ -71,10 +71,9 @@ class ChatManager:
 
     async def send_message(self, user_message: str) -> str:
         """Send a message and get a complete response."""
-        self._history.append(ChatMessage(role="user", content=user_message))
-
         context = self._build_context()
         prompt = self._build_chat_prompt(user_message)
+        self._history.append(ChatMessage(role="user", content=user_message))
         response = await self._llm.complete(prompt, context=context)
 
         self._history.append(ChatMessage(role="assistant", content=response))
@@ -82,10 +81,9 @@ class ChatManager:
 
     async def stream_message(self, user_message: str) -> AsyncIterator[str]:
         """Send a message and stream the response token-by-token."""
-        self._history.append(ChatMessage(role="user", content=user_message))
-
         context = self._build_context()
         prompt = self._build_chat_prompt(user_message)
+        self._history.append(ChatMessage(role="user", content=user_message))
 
         full_response = []
         async for token in self._llm.stream(prompt, context=context):

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
+    import onnxruntime
     from meeting_tui.config import VADConfig
 
 
@@ -23,12 +24,16 @@ class SpeechSegment:
 class VADProcessor:
     """Silero VAD wrapper that groups audio into speech segments."""
 
+    # For 16 kHz the ONNX model expects 512-sample input frames
+    # and a 64-sample context window prepended to each frame.
+    _CONTEXT_SIZE = 64
+
     def __init__(self, config: VADConfig, sample_rate: int = 16000):
         self.config = config
         self.sample_rate = sample_rate
-        self._model = None
-        self._state = None
-        self._sr_tensor = None
+        self._session: onnxruntime.InferenceSession | None = None
+        self._onnx_state: np.ndarray | None = None
+        self._context: np.ndarray | None = None
 
         # State machine for segment detection
         self._in_speech = False
@@ -39,34 +44,46 @@ class VADProcessor:
         self._elapsed_samples: int = 0
 
     def _load_model(self) -> None:
-        """Load the Silero VAD ONNX model."""
-        if self._model is not None:
+        """Load the Silero VAD ONNX model from the silero_vad package."""
+        if self._session is not None:
             return
-        import torch
-        self._model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            onnx=True,
+
+        import onnxruntime
+        from importlib.resources import files as pkg_files
+
+        model_path = str(pkg_files("silero_vad.data").joinpath("silero_vad.onnx"))
+
+        opts = onnxruntime.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 1
+        self._session = onnxruntime.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"],
+            sess_options=opts,
         )
-        (
-            self._get_speech_timestamps,
-            _,
-            self._read_audio,
-            *_,
-        ) = utils
+        self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros((1, self._CONTEXT_SIZE), dtype=np.float32)
 
     def _get_confidence(self, chunk: np.ndarray) -> float:
-        """Get speech confidence for a single audio frame."""
-        import torch
-
-        if self._model is None:
+        """Get speech confidence for a single audio frame via ONNX Runtime."""
+        if self._session is None:
             self._load_model()
 
-        tensor = torch.from_numpy(chunk).float()
-        confidence = self._model(tensor, self.sample_rate)
-        if isinstance(confidence, torch.Tensor):
-            return confidence.item()
-        return float(confidence)
+        audio = chunk.astype(np.float32).reshape(1, -1)
+        # Prepend the rolling context window
+        input_data = np.concatenate([self._context, audio], axis=1)
+
+        ort_inputs = {
+            "input": input_data,
+            "state": self._onnx_state,
+            "sr": np.array(self.sample_rate, dtype=np.int64),
+        }
+        out, self._onnx_state = self._session.run(None, ort_inputs)
+
+        # Update context with the last _CONTEXT_SIZE samples
+        self._context = input_data[:, -self._CONTEXT_SIZE:]
+
+        return float(out.squeeze())
 
     async def process_chunk(self, chunk: np.ndarray) -> SpeechSegment | None:
         """Process an audio chunk through VAD, returning a segment when speech ends.
@@ -112,7 +129,7 @@ class VADProcessor:
         return None
 
     def _reset_state(self) -> None:
-        """Reset the state machine."""
+        """Reset the segment detection state machine."""
         self._in_speech = False
         self._speech_frames = 0
         self._silence_frames = 0

@@ -149,13 +149,13 @@ class MeetingApp(App):
         """Handle SIGINT/SIGTERM for graceful shutdown."""
         self.run_worker(self.action_quit(), name="signal-shutdown")
 
-    def action_toggle_recording(self) -> None:
+    async def action_toggle_recording(self) -> None:
         """Start or stop recording."""
         if self._loading:
             self.notify("Models are still loading, please wait...", severity="warning")
             return
         if self._recording:
-            self._stop_recording()
+            await self._stop_recording()
         else:
             self._start_recording()
 
@@ -225,7 +225,7 @@ class MeetingApp(App):
         # Run the pipeline loop directly (we're already in a worker)
         await self._pipeline_loop()
 
-    def _stop_recording(self) -> None:
+    async def _stop_recording(self) -> None:
         """Stop recording and flush remaining segments."""
         self._recording = False
 
@@ -242,11 +242,11 @@ class MeetingApp(App):
             self._timer_handle.stop()
             self._timer_handle = None
 
-        # Flush remaining VAD segment
+        # Flush remaining VAD segment and await its processing
         if self._vad:
             segment = self._vad.flush()
             if segment:
-                self.run_worker(self._process_segment(segment), name="flush")
+                await self._process_segment(segment)
 
     def _update_timer(self) -> None:
         """Update the elapsed time in the status bar."""
@@ -296,7 +296,7 @@ class MeetingApp(App):
                 log.warning("Mic recovery attempt %d failed", attempt + 1)
 
         self.notify("Mic recovery failed. Press Ctrl+R to retry.", severity="error")
-        self._stop_recording()
+        await self._stop_recording()
 
     async def _process_segment(self, segment) -> None:
         """Process a speech segment: transcribe, clean, display, save."""
@@ -423,8 +423,13 @@ class MeetingApp(App):
         if self._loading:
             self.notify("Models are still loading, please wait...", severity="warning")
             return
+        if self._json_writer:
+            self._json_writer._save()
         if self._transcript_writer:
-            self.notify(f"Transcript saved to {self._transcript_writer.filepath}")
+            self.notify(
+                f"Exported to {self._transcript_writer.filepath} "
+                f"and {self._json_writer.filepath}"
+            )
 
     def action_switch_focus(self) -> None:
         """Switch focus between transcript and chat panes."""
@@ -437,7 +442,7 @@ class MeetingApp(App):
     async def action_quit(self) -> None:
         """Graceful shutdown — save everything before exiting."""
         if self._recording:
-            self._stop_recording()
+            await self._stop_recording()
         if self._transcript_writer:
             self._transcript_writer.finalize()
         # Save chat history alongside transcript

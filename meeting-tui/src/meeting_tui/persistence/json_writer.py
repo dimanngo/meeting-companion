@@ -25,7 +25,7 @@ class JSONWriter:
     """Writes structured transcript data to a JSON sidecar file."""
 
     def __init__(self, output_dir: str, title: str = "meeting"):
-        self._output_dir = Path(output_dir)
+        self._output_dir = Path(output_dir).expanduser()
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._title = title
         date_str = datetime.now().strftime("%Y-%m-%d")
