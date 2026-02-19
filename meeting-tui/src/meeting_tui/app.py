@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from collections.abc import Callable
 from datetime import datetime
 
 from textual.app import App, ComposeResult
@@ -84,6 +85,9 @@ class MeetingApp(App):
         Binding("ctrl+s", "label_speaker", "Speaker Label", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
+    
+    # Disable command palette (reduces keybinding conflicts)
+    ENABLE_COMMAND_PALETTE = False
 
     def __init__(self, config: AppConfig):
         super().__init__()
@@ -107,13 +111,17 @@ class MeetingApp(App):
         self._json_writer: JSONWriter | None = None
         self._timer_handle: object | None = None
 
+    def bell(self) -> None:
+        """Override to disable the system bell completely."""
+        pass  # Do nothing - no bell sounds
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-content"):
             yield TranscriptPane()
             yield ChatPane()
         yield StatusBar()
-        yield Footer()
+        yield Footer(show_command_palette=False)
 
     def on_mount(self) -> None:
         """Initialize pipeline components after the app is mounted."""
@@ -135,7 +143,7 @@ class MeetingApp(App):
             self.config.persistence.title,
         )
 
-        # Update status bar model name
+        # Update status bar model name and initial state
         status = self.query_one(StatusBar)
         backend = self.config.llm.backend
         if backend == "ollama":
@@ -144,6 +152,10 @@ class MeetingApp(App):
             status.model_name = self.config.llm.openai_model
         elif backend == "gemini":
             status.model_name = self.config.llm.gemini_model
+        
+        # Show ready state
+        status.activity = ""
+        self.notify("Ready to record. Press Ctrl+R to start.", severity="information", timeout=3)
 
     def _signal_shutdown(self) -> None:
         """Handle SIGINT/SIGTERM for graceful shutdown."""
@@ -165,49 +177,105 @@ class MeetingApp(App):
 
         status = self.query_one(StatusBar)
         status.activity = "Preparing models..."
+        self.notify("Loading models, please wait...", severity="information", timeout=5)
 
         # Pre-load models in background, then start audio capture
         self.run_worker(self._load_and_start_pipeline(), name="startup", exclusive=True)
 
+    _LOAD_RETRIES = 3
+    _LOAD_RETRY_DELAY = 0.5  # seconds between retries
+
+    async def _load_off_loop(self, func: Callable[[], None], label: str) -> None:
+        """Run a blocking model-load off the event loop.
+
+        Tries ``asyncio.to_thread`` up to ``_LOAD_RETRIES`` times so the
+        UI stays responsive.  The Python 3.13+ ``fds_to_keep`` race in
+        CTranslate2/faster-whisper is intermittent, so a retry usually
+        succeeds.
+
+        **Design decision – synchronous last resort:**  If every threaded
+        attempt fails the method falls back to calling *func()* directly
+        on the event loop.  This briefly freezes the UI but is preferable
+        to raising an error and leaving the app unusable on the affected
+        system.  The freeze only happens once (model loads are cached) and
+        the probability is very low after ``_LOAD_RETRIES`` retries.
+        """
+        last_exc: ValueError | None = None
+        for attempt in range(1, self._LOAD_RETRIES + 1):
+            try:
+                await asyncio.to_thread(func)
+                return
+            except ValueError as exc:
+                if "fds_to_keep" not in str(exc):
+                    raise
+                last_exc = exc
+                log.warning(
+                    "%s: threaded load hit fd race (attempt %d/%d)",
+                    label,
+                    attempt,
+                    self._LOAD_RETRIES,
+                )
+                await asyncio.sleep(self._LOAD_RETRY_DELAY)
+
+        # All threaded attempts exhausted — synchronous fallback.
+        # Intentional: a brief UI freeze is better than a hard failure
+        # that prevents the user from using the app entirely.
+        log.warning(
+            "%s: all threaded attempts failed (%s), loading synchronously "
+            "(UI may briefly freeze)",
+            label,
+            last_exc,
+        )
+        self.notify(
+            f"Loading {label} model (UI may briefly pause)…",
+            severity="warning",
+            timeout=5,
+        )
+        self.refresh()
+        func()
+        await asyncio.sleep(0)
+
     async def _load_and_start_pipeline(self) -> None:
-        """Load ML models in background thread, then start audio capture and pipeline."""
-        loop = asyncio.get_event_loop()
+        """Load ML models, then start audio capture and pipeline."""
         status = self.query_one(StatusBar)
 
         # Load VAD model (downloads from GitHub on first run)
         if not self._models_ready:
             status.activity = "Loading VAD model (first run may download)..."
+            self.refresh()
             try:
-                await loop.run_in_executor(None, self._vad._load_model)
+                await self._load_off_loop(self._vad._load_model, "VAD")
             except Exception as e:
                 log.error("Failed to load VAD model: %s", e)
-                self.notify(f"VAD model error: {e}", severity="error")
+                self.notify(f"VAD model error: {e}", severity="error", timeout=10)
                 self._loading = False
                 status.activity = ""
                 return
 
             # Load Whisper model (downloads on first run)
             status.activity = f"Loading Whisper '{self.config.transcription.model_size}' model..."
+            self.refresh()
             try:
-                await loop.run_in_executor(None, self._engine._load_model)
+                await self._load_off_loop(self._engine._load_model, "Whisper")
             except Exception as e:
                 log.error("Failed to load Whisper model: %s", e)
-                self.notify(f"Whisper model error: {e}", severity="error")
+                self.notify(f"Whisper model error: {e}", severity="error", timeout=10)
                 self._loading = False
                 status.activity = ""
                 return
 
             self._models_ready = True
+            self.notify("Models loaded successfully!", severity="information", timeout=2)
 
         # Models loaded — start audio capture
         status.activity = "Starting microphone..."
-        self._audio_capture = AudioCapture(self.config.audio, loop=loop)
+        self._audio_capture = AudioCapture(self.config.audio, loop=asyncio.get_event_loop())
         try:
             self._audio_capture.start()
         except Exception as e:
             self._loading = False
             status.activity = ""
-            self.notify(f"Mic error: {e}. Check --list-devices.", severity="error")
+            self.notify(f"Mic error: {e}. Check --list-devices.", severity="error", timeout=10)
             log.error("Failed to start audio capture: %s", e)
             return
 
@@ -217,7 +285,7 @@ class MeetingApp(App):
         self._recording_start = datetime.now()
         status.activity = ""
         status.recording = True
-        self.notify("Recording started!", timeout=3)
+        self.notify("Recording started!", severity="information", timeout=3)
 
         # Start the timer
         self._timer_handle = self.set_interval(1.0, self._update_timer)
