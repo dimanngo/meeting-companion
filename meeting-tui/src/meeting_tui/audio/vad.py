@@ -40,6 +40,8 @@ class VADProcessor:
 
     def _load_model(self) -> None:
         """Load the Silero VAD ONNX model."""
+        if self._model is not None:
+            return
         import torch
         self._model, utils = torch.hub.load(
             repo_or_dir="snakers4/silero-vad",

@@ -159,29 +159,60 @@ class MeetingApp(App):
         self._recording = True
         self._recording_start = datetime.now()
 
-        self._audio_capture = AudioCapture(self.config.audio, loop=asyncio.get_event_loop())
+        status = self.query_one(StatusBar)
+        status.recording = True
+
+        # Pre-load models in background, then start audio capture
+        self.notify("Loading models... please wait", timeout=10)
+        self.run_worker(self._load_and_start_pipeline(), name="startup", exclusive=True)
+
+    async def _load_and_start_pipeline(self) -> None:
+        """Load ML models in background thread, then start audio capture and pipeline."""
+        loop = asyncio.get_event_loop()
+
+        # Load VAD model (downloads from GitHub on first run)
+        self.notify("Loading VAD model...", timeout=10)
+        try:
+            await loop.run_in_executor(None, self._vad._load_model)
+        except Exception as e:
+            log.error("Failed to load VAD model: %s", e)
+            self.notify(f"VAD model error: {e}", severity="error")
+            self._recording = False
+            self.query_one(StatusBar).recording = False
+            return
+
+        # Load Whisper model (downloads on first run)
+        self.notify(
+            f"Loading Whisper '{self.config.transcription.model_size}' model...",
+            timeout=10,
+        )
+        try:
+            await loop.run_in_executor(None, self._engine._load_model)
+        except Exception as e:
+            log.error("Failed to load Whisper model: %s", e)
+            self.notify(f"Whisper model error: {e}", severity="error")
+            self._recording = False
+            self.query_one(StatusBar).recording = False
+            return
+
+        # Models loaded — now start audio capture
+        self._audio_capture = AudioCapture(self.config.audio, loop=loop)
         try:
             self._audio_capture.start()
         except Exception as e:
             self._recording = False
+            self.query_one(StatusBar).recording = False
             self.notify(f"Mic error: {e}. Check --list-devices.", severity="error")
             log.error("Failed to start audio capture: %s", e)
             return
 
-        status = self.query_one(StatusBar)
-        status.recording = True
-
-        # Show model loading notification (first run triggers downloads)
-        self.notify(
-            f"Loading Whisper '{self.config.transcription.model_size}' model (first run may download)...",
-            timeout=5,
-        )
+        self.notify("Recording started!", timeout=3)
 
         # Start the timer
         self._timer_handle = self.set_interval(1.0, self._update_timer)
 
-        # Start the pipeline worker
-        self.run_worker(self._pipeline_loop(), name="pipeline", exclusive=True)
+        # Run the pipeline loop directly (we're already in a worker)
+        await self._pipeline_loop()
 
     def _stop_recording(self) -> None:
         """Stop recording and flush remaining segments."""

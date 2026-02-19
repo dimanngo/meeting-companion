@@ -31,6 +31,8 @@ class TranscriptionEngine:
 
     def _load_model(self) -> None:
         """Load the faster-whisper model (lazy initialization)."""
+        if self._model is not None:
+            return
         from faster_whisper import WhisperModel
 
         self._model = WhisperModel(
