@@ -69,9 +69,26 @@ def main(
         cli_overrides=cli_overrides if cli_overrides else None,
     )
 
+    # Pre-load ML models *before* the Textual event loop starts.
+    # CTranslate2 (faster-whisper) triggers a Python 3.13+ fds_to_keep
+    # race when loaded from any thread inside an asyncio loop.
+    # Loading synchronously here avoids the issue entirely.
+    from meeting_tui.audio.vad import VADProcessor
+    from meeting_tui.transcription.engine import TranscriptionEngine
+
+    click.echo("Loading VAD model...")
+    vad = VADProcessor(config.vad, sample_rate=config.audio.sample_rate)
+    vad._load_model()
+
+    click.echo(f"Loading Whisper '{config.transcription.model_size}' model...")
+    engine = TranscriptionEngine(config.transcription)
+    engine._load_model()
+
+    click.echo("Models loaded. Starting app...")
+
     from meeting_tui.app import MeetingApp
 
-    app = MeetingApp(config)
+    app = MeetingApp(config, vad=vad, engine=engine)
     app.run()
 
 

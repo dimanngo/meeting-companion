@@ -82,7 +82,16 @@ uv run meeting-tui
 meeting-tui
 ```
 
-That's it. The app opens in your terminal. Press **Ctrl+R** to start recording.
+On first launch, the app downloads and loads ML models (~144 MB total for the default `base` model).
+You'll see progress in the terminal:
+
+```
+Loading VAD model...
+Loading Whisper 'base' model...
+Models loaded. Starting app...
+```
+
+Once the TUI appears, press **Ctrl+R** to start recording — it begins instantly since models are pre-loaded.
 
 ---
 
@@ -394,6 +403,7 @@ The JSON file enables programmatic access for search, analytics, or re-processin
 | High memory usage | Ollama models use 4–8 GB RAM. Use `phi3:mini` (2.3 GB) for less memory |
 | Mic disconnected mid-meeting | The app auto-retries 3 times with backoff. If recovery fails, press `Ctrl+R` to restart |
 | LLM errors / timeouts | Requests are retried 3 times with exponential backoff. Raw text is used if cleanup fails |
+| Slow startup on first run | First launch downloads Whisper model (~142 MB for `base`). Subsequent starts use the cache and load in ~6s |
 
 ---
 

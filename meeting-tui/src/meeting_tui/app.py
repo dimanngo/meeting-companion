@@ -89,21 +89,27 @@ class MeetingApp(App):
     # Disable command palette (reduces keybinding conflicts)
     ENABLE_COMMAND_PALETTE = False
 
-    def __init__(self, config: AppConfig):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        vad: VADProcessor | None = None,
+        engine: TranscriptionEngine | None = None,
+    ):
         super().__init__()
         self.config = config
         self._recording = False
         self._loading = False  # True while models are loading
-        self._models_ready = False  # True once all models are loaded
+        self._models_ready = vad is not None and engine is not None
         self._recording_start: datetime | None = None
         self._word_count = 0
         self._segment_count = 0
         self._current_speaker: str | None = None
 
-        # Pipeline components (initialized on mount)
+        # Pipeline components (may be pre-loaded)
         self._audio_capture: AudioCapture | None = None
-        self._vad: VADProcessor | None = None
-        self._engine: TranscriptionEngine | None = None
+        self._vad: VADProcessor | None = vad
+        self._engine: TranscriptionEngine | None = engine
         self._cleaner: TranscriptCleaner | None = None
         self._chat_manager: ChatManager | None = None
         self._llm: LLMBackend | None = None
@@ -130,10 +136,12 @@ class MeetingApp(App):
             asyncio.get_event_loop().add_signal_handler(sig, self._signal_shutdown)
 
         self._llm = create_llm_backend(self.config)
-        self._engine = TranscriptionEngine(self.config.transcription)
+        if self._engine is None:
+            self._engine = TranscriptionEngine(self.config.transcription)
         self._cleaner = TranscriptCleaner(self._llm)
         self._chat_manager = ChatManager(self._llm)
-        self._vad = VADProcessor(self.config.vad, sample_rate=self.config.audio.sample_rate)
+        if self._vad is None:
+            self._vad = VADProcessor(self.config.vad, sample_rate=self.config.audio.sample_rate)
         self._transcript_writer = TranscriptWriter(
             self.config.persistence.output_dir,
             self.config.persistence.title,
@@ -176,8 +184,12 @@ class MeetingApp(App):
         self._loading = True
 
         status = self.query_one(StatusBar)
-        status.activity = "Preparing models..."
-        self.notify("Loading models, please wait...", severity="information", timeout=5)
+        if self._models_ready:
+            status.activity = "Starting microphone..."
+            self.notify("Starting recording...", severity="information", timeout=2)
+        else:
+            status.activity = "Preparing models..."
+            self.notify("Loading models, please wait...", severity="information", timeout=5)
 
         # Pre-load models in background, then start audio capture
         self.run_worker(self._load_and_start_pipeline(), name="startup", exclusive=True)
@@ -186,52 +198,14 @@ class MeetingApp(App):
     _LOAD_RETRY_DELAY = 0.5  # seconds between retries
 
     async def _load_off_loop(self, func: Callable[[], None], label: str) -> None:
-        """Run a blocking model-load off the event loop.
+        """Run a blocking model-load synchronously.
 
-        Tries ``asyncio.to_thread`` up to ``_LOAD_RETRIES`` times so the
-        UI stays responsive.  The Python 3.13+ ``fds_to_keep`` race in
-        CTranslate2/faster-whisper is intermittent, so a retry usually
-        succeeds.
-
-        **Design decision – synchronous last resort:**  If every threaded
-        attempt fails the method falls back to calling *func()* directly
-        on the event loop.  This briefly freezes the UI but is preferable
-        to raising an error and leaving the app unusable on the affected
-        system.  The freeze only happens once (model loads are cached) and
-        the probability is very low after ``_LOAD_RETRIES`` retries.
+        NOTE: Ideally this would use ``run_in_executor`` but CTranslate2
+        triggers a Python 3.13+ ``fds_to_keep`` race when loaded from
+        *any* thread inside an asyncio loop.  Models should be pre-loaded
+        in ``__main__`` before the event loop starts.  This fallback is
+        only reached when the app is constructed without pre-loaded models.
         """
-        last_exc: ValueError | None = None
-        for attempt in range(1, self._LOAD_RETRIES + 1):
-            try:
-                await asyncio.to_thread(func)
-                return
-            except ValueError as exc:
-                if "fds_to_keep" not in str(exc):
-                    raise
-                last_exc = exc
-                log.warning(
-                    "%s: threaded load hit fd race (attempt %d/%d)",
-                    label,
-                    attempt,
-                    self._LOAD_RETRIES,
-                )
-                await asyncio.sleep(self._LOAD_RETRY_DELAY)
-
-        # All threaded attempts exhausted — synchronous fallback.
-        # Intentional: a brief UI freeze is better than a hard failure
-        # that prevents the user from using the app entirely.
-        log.warning(
-            "%s: all threaded attempts failed (%s), loading synchronously "
-            "(UI may briefly freeze)",
-            label,
-            last_exc,
-        )
-        self.notify(
-            f"Loading {label} model (UI may briefly pause)…",
-            severity="warning",
-            timeout=5,
-        )
-        self.refresh()
         func()
         await asyncio.sleep(0)
 
