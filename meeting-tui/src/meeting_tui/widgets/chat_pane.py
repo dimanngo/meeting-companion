@@ -38,6 +38,11 @@ class ChatPane(Static):
     }
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._messages: list[str] = []  # Rendered message history
+        self._stream_tokens: list[str] = []
+
     def compose(self) -> ComposeResult:
         yield Static("💬 Chat", id="chat-title")
         yield RichLog(highlight=True, markup=True, wrap=True, id="chat-log")
@@ -60,22 +65,41 @@ class ChatPane(Static):
         self.add_user_message(text)
         self.post_message(ChatSubmitted(text))
 
+    def _write_message(self, markup: str) -> None:
+        """Write a message and track it in history."""
+        self._messages.append(markup)
+        self.log_widget.write(markup)
+
+    def _rewrite_all(self, extra: str | None = None) -> None:
+        """Clear the log and re-render all tracked messages plus optional extra."""
+        self.log_widget.clear()
+        for msg in self._messages:
+            self.log_widget.write(msg)
+        if extra:
+            self.log_widget.write(extra)
+
     def add_user_message(self, text: str) -> None:
         """Display a user message in the chat log."""
-        self.log_widget.write(f"[bold green]You:[/bold green] {text}")
+        self._write_message(f"[bold green]You:[/bold green] {text}")
 
     def add_assistant_message(self, text: str) -> None:
         """Display a complete assistant message."""
-        self.log_widget.write(f"[bold blue]AI:[/bold blue] {text}")
+        self._write_message(f"[bold blue]AI:[/bold blue] {text}")
 
     def begin_assistant_stream(self) -> None:
         """Begin streaming an assistant response."""
-        self.log_widget.write("[bold blue]AI:[/bold blue] ", end="")
+        self._stream_tokens = []
 
     def append_stream_token(self, token: str) -> None:
-        """Append a token to the current streaming response."""
-        self.log_widget.write(token, end="")
+        """Accumulate a token and live-update the display."""
+        self._stream_tokens.append(token)
+        accumulated = "".join(self._stream_tokens)
+        self._rewrite_all(f"[bold blue]AI:[/bold blue] {accumulated}▍")
 
     def end_assistant_stream(self) -> None:
-        """Finish the streaming response with a newline."""
-        self.log_widget.write("")
+        """Finish the streaming response — write final message."""
+        accumulated = "".join(self._stream_tokens)
+        self._stream_tokens = []
+        self._write_message(f"[bold blue]AI:[/bold blue] {accumulated}")
+        # Re-render cleanly without the cursor
+        self._rewrite_all()
