@@ -13,7 +13,7 @@ class TranscriptWriter:
         self._output_dir = Path(output_dir).expanduser()
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._title = title
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self._filepath = self._output_dir / f"{date_str}_{title}.md"
         self._initialized = False
 
