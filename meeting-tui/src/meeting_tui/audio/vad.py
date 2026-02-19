@@ -28,6 +28,12 @@ class VADProcessor:
     # and a 64-sample context window prepended to each frame.
     _CONTEXT_SIZE = 64
 
+    # Supported frame sizes per sample rate (from Silero VAD docs).
+    _VALID_FRAME_SIZES: dict[int, set[int]] = {
+        8000: {256, 512, 768},
+        16000: {512, 1024, 1536},
+    }
+
     def __init__(self, config: VADConfig, sample_rate: int = 16000):
         self.config = config
         self.sample_rate = sample_rate
@@ -42,6 +48,7 @@ class VADProcessor:
         self._current_segment: list[np.ndarray] = []
         self._segment_start_time: float = 0.0
         self._elapsed_samples: int = 0
+        self._frame_size_validated = False
 
     def _load_model(self) -> None:
         """Load the Silero VAD ONNX model from the silero_vad package."""
@@ -91,7 +98,20 @@ class VADProcessor:
         Uses a state machine: speech starts after min_speech_frames consecutive
         frames above threshold, ends after min_silence_frames below threshold.
         """
-        confidence = await asyncio.get_event_loop().run_in_executor(
+        if not self._frame_size_validated:
+            self._frame_size_validated = True
+            valid = self._VALID_FRAME_SIZES.get(self.sample_rate, set())
+            if valid and len(chunk) not in valid:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "Audio chunk size %d is NOT a supported Silero VAD frame size "
+                    "for %d Hz (supported: %s). Speech detection will be unreliable! "
+                    "Set audio.block_duration_ms so that sample_rate * block_duration_ms / 1000 "
+                    "equals a supported size (e.g. 32 ms for 512 samples at 16 kHz).",
+                    len(chunk), self.sample_rate, sorted(valid),
+                )
+
+        confidence = await asyncio.get_running_loop().run_in_executor(
             None, self._get_confidence, chunk
         )
 

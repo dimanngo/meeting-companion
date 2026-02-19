@@ -18,7 +18,7 @@ A terminal-based meeting companion with live transcription and AI chat — all w
 │  │                       │  │      the Q2 budget by    │ │
 │  │                       │  │      Friday.             │ │
 │  └──────────────────────┘  └──────────────────────────┘ │
-│  ● Recording 00:02:05 │ Words: 342 │ Segments: 12       │
+│  🔴 Recording 00:02:05 │ 🎤 █████░░░ │ Words: 342 │ Segments: 12  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -29,7 +29,8 @@ A terminal-based meeting companion with live transcription and AI chat — all w
 - **Interactive Chat** — Query the meeting context with AI — ask questions, request summaries, find action items
 - **Multiple LLM Backends** — Ollama (local/private), OpenAI, or Google Gemini
 - **Auto-save** — Markdown transcript + JSON sidecar with timestamps, confidence scores, and raw/clean text pairs
-- **Rich TUI** — Split-pane interface with live transcript, chat, and status bar
+- **Rich TUI** — Split-pane interface with live transcript, chat, and status bar with real-time audio level meter
+- **Audio Diagnostics** — Live microphone level indicator and automatic warnings when no speech is detected
 
 ---
 
@@ -123,7 +124,7 @@ Once the TUI appears, press **Ctrl+R** to start recording — it begins instantl
    uv run meeting-tui --device "MacBook"
    ```
 
-3. **Press `Ctrl+R`** to start recording. The status bar shows `● Recording` and a running timer.
+3. **Press `Ctrl+R`** to start recording. The status bar shows `🔴 Recording` with a running timer and a live audio level meter (`🎤 ████░░░░`).
 
 4. **Speak normally.** The left pane shows live transcription as you talk. Each segment is automatically cleaned up by the LLM (grammar fixes, filler word removal).
 
@@ -222,7 +223,7 @@ Create `~/.config/meeting-tui/config.toml` to set persistent defaults:
 [audio]
 device = 0              # Audio device index (run --list-devices to find yours)
 sample_rate = 16000     # 16kHz is optimal for speech recognition
-block_duration_ms = 30  # Audio block size for VAD processing
+block_duration_ms = 32  # Audio block size — must produce a supported Silero VAD frame size (512/1024/1536 @ 16kHz)
 
 [vad]
 threshold = 0.5         # Speech detection sensitivity (0.0–1.0, lower = more sensitive)
@@ -397,6 +398,8 @@ The JSON file enables programmatic access for search, analytics, or re-processin
 |---|---|
 | `No module named 'sounddevice'` | Install PortAudio: `brew install portaudio` (macOS) |
 | No audio devices listed | Check microphone permissions in System Settings → Privacy → Microphone |
+| Audio level meter is flat | Check microphone permissions, or select correct device with `--device` |
+| "No speech detected" warning | Audio is arriving but VAD isn't triggering — speak louder or lower `vad.threshold` in config |
 | Ollama connection refused | Start the server: `ollama serve` |
 | Transcription is slow | Use a smaller model: `--model tiny` or `--model base` |
 | Poor transcription quality | Use a larger model: `--model small` or `--model medium` |

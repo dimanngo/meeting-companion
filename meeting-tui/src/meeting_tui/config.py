@@ -22,7 +22,7 @@ class AudioConfig:
     device: int | str | None = None
     sample_rate: int = 16000
     channels: int = 1
-    block_duration_ms: int = 30  # Duration of each audio block in ms
+    block_duration_ms: int = 32  # Must produce a supported Silero VAD frame size (512/1024/1536 @ 16 kHz)
 
 
 @dataclass
@@ -30,7 +30,7 @@ class VADConfig:
     threshold: float = 0.5
     min_speech_frames: int = 6  # Consecutive frames above threshold to start speech
     min_silence_frames: int = 30  # Consecutive frames below threshold to end speech
-    frame_duration_ms: int = 30
+    frame_duration_ms: int = 32
 
 
 @dataclass

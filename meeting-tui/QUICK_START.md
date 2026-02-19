@@ -22,12 +22,19 @@ Models loaded. Starting app...
 ### ✅ TUI Appears
 - **Status bar visible** at the bottom (just above keybinding footer)
 - Status bar shows: `⏸️  Ready 00:00:00 │ Words: 0 │ Segments: 0 │ Model: <model-name>`
+- No audio level meter shown yet (appears only while recording)
 - Notification: "Ready to record. Press Ctrl+R to start."
 
 ### ✅ When You Press Ctrl+R
 - Recording starts **immediately** (models are already loaded)
-- Status bar changes to: `🔴 Recording 00:00:01 │ Words: 0 │ Segments: 0 │ Model: <model-name>`
+- Status bar changes to: `🔴 Recording 00:00:01 │ 🎤 ████░░░░ │ Words: 0 │ Segments: 0 │ Model: <model-name>`
+- The `🎤 ████░░░░` bar shows the live audio level — it moves when you speak
 - No UI freeze, no loading delay
+
+### ⚠️ No-Speech Warnings
+- If the app records for **15 seconds** with zero transcript segments, a warning appears:
+  - **No audio signal:** "Check microphone permissions and input device" — the mic may be muted or wrong device selected
+  - **Audio present but no speech:** "Try speaking louder or adjust VAD threshold" — audio is arriving but VAD doesn't detect speech
 
 ### ✅ No Beeps
 - Moving mouse over terminal = silent
@@ -90,5 +97,7 @@ You'll know everything works when:
 - ✅ Models load in the terminal before the TUI appears (~8 seconds)
 - ✅ TUI appears with status bar immediately visible
 - ✅ Ctrl+R starts recording instantly — no freeze or delay
+- ✅ Audio level meter (`🎤 ████░░░░`) moves when you speak
 - ✅ No beeping sounds when moving mouse
 - ✅ Status shows live timer and word count
+- ✅ No "⚠️ No speech" warning after 15 seconds of talking

@@ -8,6 +8,8 @@ import signal
 from collections.abc import Callable
 from datetime import datetime
 
+import numpy as np
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -116,6 +118,7 @@ class MeetingApp(App):
         self._transcript_writer: TranscriptWriter | None = None
         self._json_writer: JSONWriter | None = None
         self._timer_handle: object | None = None
+        self._silence_warned = False
 
     def bell(self) -> None:
         """Override to disable the system bell completely."""
@@ -257,6 +260,7 @@ class MeetingApp(App):
         self._loading = False
         self._recording = True
         self._recording_start = datetime.now()
+        self._silence_warned = False
         status.activity = ""
         status.recording = True
         self.notify("Recording started!", severity="information", timeout=3)
@@ -279,6 +283,8 @@ class MeetingApp(App):
 
         status = self.query_one(StatusBar)
         status.recording = False
+        status.audio_level = 0.0
+        status.no_speech_warning = False
 
         if self._timer_handle:
             self._timer_handle.stop()
@@ -299,6 +305,7 @@ class MeetingApp(App):
 
     async def _pipeline_loop(self) -> None:
         """Main audio processing pipeline: capture → VAD → transcribe → clean → display."""
+        status = self.query_one(StatusBar)
         while self._recording and self._audio_capture:
             try:
                 chunk = await asyncio.wait_for(self._audio_capture.queue.get(), timeout=0.5)
@@ -311,14 +318,38 @@ class MeetingApp(App):
                 await self._attempt_mic_recovery()
                 continue
 
+            # Update audio level indicator
+            rms = float(np.sqrt(np.mean(chunk ** 2)))
+            status.audio_level = min(rms * 10.0, 1.0)
+
             try:
                 segment = await self._vad.process_chunk(chunk)
             except Exception as e:
                 log.error("VAD error: %s", e)
+                self.notify(f"VAD processing error: {e}", severity="error", timeout=5)
                 continue
 
             if segment is not None:
+                self._silence_warned = False
+                status.no_speech_warning = False
                 await self._process_segment(segment)
+            elif not self._silence_warned and self._recording_start:
+                elapsed = (datetime.now() - self._recording_start).total_seconds()
+                if elapsed > 15.0 and self._segment_count == 0:
+                    self._silence_warned = True
+                    status.no_speech_warning = True
+                    if rms < 0.001:
+                        self.notify(
+                            "No audio signal detected for 15 s. "
+                            "Check microphone permissions and input device (--list-devices).",
+                            severity="warning", timeout=10,
+                        )
+                    else:
+                        self.notify(
+                            "Audio signal present but no speech detected for 15 s. "
+                            "Try speaking louder or adjust VAD threshold.",
+                            severity="warning", timeout=10,
+                        )
 
     async def _attempt_mic_recovery(self) -> None:
         """Try to recover from a mic disconnection."""

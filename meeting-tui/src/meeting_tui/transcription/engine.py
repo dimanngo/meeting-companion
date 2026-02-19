@@ -44,7 +44,7 @@ class TranscriptionEngine:
         self, audio: np.ndarray, start_time: float = 0.0, end_time: float = 0.0
     ) -> TranscriptionResult:
         """Transcribe an audio segment. Runs in executor to avoid blocking."""
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._transcribe_sync, audio, start_time, end_time
         )
 

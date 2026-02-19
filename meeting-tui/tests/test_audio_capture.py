@@ -122,12 +122,12 @@ class TestAudioCapture:
     def test_block_size_calculation(self, mock_sd):
         from meeting_tui.audio.capture import AudioCapture
 
-        config = AudioConfig(sample_rate=16000, block_duration_ms=30)
+        config = AudioConfig(sample_rate=16000, block_duration_ms=32)
         capture = AudioCapture(config)
         capture.start()
 
         call_kwargs = mock_sd.InputStream.call_args[1]
-        assert call_kwargs["blocksize"] == 480  # 16000 * 30 / 1000
+        assert call_kwargs["blocksize"] == 512  # 16000 * 32 / 1000
         capture.stop()
 
 
