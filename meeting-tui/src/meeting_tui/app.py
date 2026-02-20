@@ -136,7 +136,10 @@ class MeetingApp(App):
         """Initialize pipeline components after the app is mounted."""
         # Register signal handlers for graceful shutdown
         for sig in (signal.SIGINT, signal.SIGTERM):
-            asyncio.get_event_loop().add_signal_handler(sig, self._signal_shutdown)
+            try:
+                asyncio.get_event_loop().add_signal_handler(sig, self._signal_shutdown)
+            except (NotImplementedError, OSError):
+                pass  # Signal handlers not supported on this platform/event loop
 
         self._llm = create_llm_backend(self.config)
         if self._engine is None:
