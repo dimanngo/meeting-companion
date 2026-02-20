@@ -37,3 +37,9 @@ class LLMBackend(ABC):
         # Make this a generator
         if False:
             yield ""
+
+    async def close(self) -> None:
+        """Release any resources held by the backend.
+
+        Subclasses may override to close HTTP clients, etc.
+        """

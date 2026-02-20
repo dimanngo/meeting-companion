@@ -524,7 +524,7 @@ class MeetingApp(App):
         # Save chat history alongside transcript
         if self._chat_manager and self._chat_manager.history:
             self._save_chat_history()
-        if self._llm and hasattr(self._llm, "close"):
+        if self._llm:
             try:
                 await self._llm.close()
             except Exception:
