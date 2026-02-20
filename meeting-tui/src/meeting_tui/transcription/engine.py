@@ -67,7 +67,9 @@ class TranscriptionEngine:
         segment_count = 0
         for segment in segments:
             text_parts.append(segment.text.strip())
-            total_confidence += getattr(segment, "avg_logprob", 0.0)
+            total_confidence += getattr(
+                segment, "avg_log_prob", getattr(segment, "avg_logprob", 0.0)
+            )
             segment_count += 1
 
         text = " ".join(text_parts)
