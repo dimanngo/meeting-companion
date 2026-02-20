@@ -138,11 +138,11 @@ class TestFullPipeline:
             assert "decide by Friday" in md_content
             assert "Transcript ended" in md_content
 
-            # --- Verify JSON output ---
+            # --- Verify JSONL output ---
 
-            json_content = json.loads(json_writer.filepath.read_text())
-            assert json_content["total_segments"] == 3
-            seg0 = json_content["segments"][0]
+            lines = json_writer.filepath.read_text().strip().splitlines()
+            assert len(lines) == 3
+            seg0 = json.loads(lines[0])
             assert seg0["raw_text"] == "Uh, we need to finalize the budget"
             assert seg0["clean_text"] == "We need to finalize the budget."
             assert seg0["language"] == "en"
@@ -173,5 +173,7 @@ class TestFullPipeline:
             md_content = writer.filepath.read_text()
             assert "Hello world" in md_content
 
-            json_data = json.loads(json_writer.filepath.read_text())
-            assert json_data["total_segments"] == 1
+            lines = json_writer.filepath.read_text().strip().splitlines()
+            assert len(lines) == 1
+            json_data = json.loads(lines[0])
+            assert json_data["clean_text"] == "Hello world"

@@ -500,7 +500,7 @@ class MeetingApp(App):
             self.notify("Models are still loading, please wait...", severity="warning")
             return
         if self._json_writer:
-            self._json_writer._save()
+            self._json_writer.flush()
         if self._transcript_writer:
             self.notify(
                 f"Exported to {self._transcript_writer.filepath} "
