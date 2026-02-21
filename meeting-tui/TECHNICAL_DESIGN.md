@@ -33,7 +33,7 @@ Meeting TUI is a terminal-based application that captures live microphone audio,
 │  │                          ┌───────────┴────────────┐            ││
 │  │                          ▼                        ▼            ││
 │  │                  TranscriptWriter          JSONWriter           ││
-│  │                   (.md output)            (.json output)       ││
+│  │                   (.md output)            (.jsonl output)      ││
 │  └────────────────────────────────────────────────────────────────┘││
 │                                                                     │
 │  ┌─ Chat (async) ──────────────────────────────────────────────────┐│
@@ -49,7 +49,7 @@ Microphone
   │ float32 PCM chunks (512 samples @ 16 kHz = 32 ms frames)
   ▼
 AudioCapture (sounddevice InputStream, PortAudio thread)
-  │ np.ndarray chunks → asyncio.Queue
+  │ np.ndarray chunks → bounded asyncio.Queue(maxsize=200)
   ▼
 VADProcessor (Silero VAD, ONNX Runtime)
   │ State machine: speech-start / speech-end detection
@@ -66,7 +66,7 @@ TranscriptCleaner (LLM-based)                          ┌──► ChatManager
 Display + Persist                                      │
   ├─► TranscriptPane (raw → dim, clean → normal)      │
   ├─► TranscriptWriter (append-only .md)               │
-  ├─► JSONWriter (structured .json, full rewrite)      │
+  ├─► JSONWriter (structured .jsonl, append-only)      │
   └─► ChatManager.add_transcript_segment() ────────────┘
 ```
 
@@ -100,7 +100,7 @@ src/meeting_tui/
 │
 ├── persistence/
 │   ├── transcript_writer.py # Append-only Markdown writer
-│   └── json_writer.py       # Structured JSON sidecar writer
+│   └── json_writer.py       # Structured JSONL sidecar writer
 │
 └── widgets/
     ├── transcript_pane.py   # Live transcript display widget
@@ -287,7 +287,7 @@ while _recording:
 5. Display raw text in `TranscriptPane` (dimmed)
 6. Clean via `_clean_with_retry(raw_text)` — 3 retries, exponential backoff
 7. Display clean text in `TranscriptPane`
-8. Persist to `.md` and `.json` files
+8. Persist to `.md` and `.jsonl` files
 9. Add to `ChatManager` transcript context
 10. Update word/segment counts in StatusBar
 
@@ -349,12 +349,14 @@ while _recording:
 
 **Class:** `AudioCapture`
 
-**Responsibility:** Capture raw PCM audio from the system microphone and deliver fixed-size chunks to an asyncio queue.
+**Responsibility:** Capture raw PCM audio from the system microphone and deliver fixed-size chunks to a bounded asyncio queue.
 
 **Threading Model:**
 - `sounddevice.InputStream` runs a **PortAudio callback** on a dedicated audio thread
-- The callback copies the audio data and uses `loop.call_soon_threadsafe()` to push the chunk into an `asyncio.Queue`
+- The callback copies the audio data and uses `loop.call_soon_threadsafe()` to push the chunk into an `asyncio.Queue(maxsize=200)`
 - The main async pipeline consumes from this queue
+- If the queue is full, the oldest chunk is dropped so the pipeline stays near real-time instead of accumulating unbounded backlog
+- Callback status flags and queue overflow events are logged as warnings
 
 **Audio Format:**
 - Sample rate: 16,000 Hz (configurable)
@@ -367,7 +369,7 @@ while _recording:
 **Lifecycle:**
 - `start()` → opens `sd.InputStream` and starts it
 - `stop()` → stops and closes the stream
-- `queue` property → the `asyncio.Queue[np.ndarray]` consumer endpoint
+- `queue` property → the `asyncio.Queue[np.ndarray]` consumer endpoint (bounded)
 
 **Static Method:** `list_devices()` → returns a list of dicts with `index`, `name`, `channels` for all input-capable devices.
 
@@ -598,32 +600,17 @@ MEETING TRANSCRIPT:
 
 **Class:** `JSONWriter`
 
-**Output Format:** JSON (`.json`)
+**Output Format:** JSON Lines (`.jsonl`)
 
-**File Naming:** `{YYYY-MM-DD_HH-MM-SS}_{title}.json` (same timestamp pattern as Markdown)
+**File Naming:** `{YYYY-MM-DD_HH-MM-SS}_{title}.jsonl` (same timestamp pattern as Markdown)
 
-**Structure:**
+**Structure:** One JSON object per line, each line is a single transcript segment.
 ```json
-{
-  "title": "meeting",
-  "date": "2026-02-19T14:30:00.000000",
-  "segments": [
-    {
-      "segment_id": 1,
-      "start_time": 0.0,
-      "end_time": 3.5,
-      "timestamp": "00:00:00",
-      "raw_text": "um so like we were discussing",
-      "clean_text": "So we were discussing",
-      "confidence": -0.35,
-      "language": "en"
-    }
-  ],
-  "total_segments": 1
-}
+{"segment_id":1,"start_time":0.0,"end_time":3.5,"timestamp":"00:00:00","raw_text":"um so like we were discussing","clean_text":"So we were discussing","confidence":-0.35,"language":"en"}
+{"segment_id":2,"start_time":4.0,"end_time":8.1,"timestamp":"00:00:04","raw_text":"we should lock budget","clean_text":"We should lock the budget.","confidence":-0.29,"language":"en"}
 ```
 
-**Write Strategy:** Full file rewrite on every segment addition. `_save()` serializes all accumulated segments to JSON with `indent=2`.
+**Write Strategy:** Append-only. Each `add_segment()` writes exactly one JSON line. `flush()` is a public no-op API for caller compatibility because writes are immediate.
 
 **Segment Data:** `TranscriptSegment` dataclass with `segment_id` (auto-incremented), `start_time`, `end_time`, `timestamp`, `raw_text`, `clean_text`, `confidence`, `language`.
 
@@ -773,7 +760,7 @@ For a meeting titled "meeting" started at 2026-02-19 14:30:00:
 | File | Path |
 |------|------|
 | Markdown transcript | `~/meeting-transcripts/2026-02-19_14-30-00_meeting.md` |
-| JSON transcript | `~/meeting-transcripts/2026-02-19_14-30-00_meeting.json` |
+| JSON transcript | `~/meeting-transcripts/2026-02-19_14-30-00_meeting.jsonl` |
 | Chat history | `~/meeting-transcripts/2026-02-19_14-30-00_meeting_chat.md` |
 
 The timestamp is captured at writer construction time (during `on_mount()`), not at recording start. This means the timestamp reflects app launch time.

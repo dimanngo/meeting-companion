@@ -130,6 +130,35 @@ class TestAudioCapture:
         assert call_kwargs["blocksize"] == 512  # 16000 * 32 / 1000
         capture.stop()
 
+    def test_queue_is_bounded(self):
+        from meeting_tui.audio.capture import AudioCapture
+
+        config = AudioConfig()
+        capture = AudioCapture(config)
+
+        assert capture.queue.maxsize == 200
+
+    @patch("meeting_tui.audio.capture.sd")
+    def test_callback_drops_oldest_when_queue_full(self, mock_sd):
+        from meeting_tui.audio.capture import AudioCapture
+
+        config = AudioConfig()
+        loop = asyncio.new_event_loop()
+        capture = AudioCapture(config, loop=loop)
+        capture._queue = asyncio.Queue(maxsize=1)
+
+        old_chunk = np.array([1.0, 1.0], dtype=np.float32)
+        new_chunk = np.array([2.0, 2.0], dtype=np.float32)
+        capture.queue.put_nowait(old_chunk)
+
+        capture._audio_callback(new_chunk, 2, None, MagicMock(spec=bool, __bool__=lambda s: False))
+        loop.run_until_complete(asyncio.sleep(0.01))
+
+        assert capture.queue.qsize() == 1
+        queued = capture.queue.get_nowait()
+        assert np.array_equal(queued, new_chunk)
+        loop.close()
+
 
 # --- VAD Processor tests ---
 

@@ -28,7 +28,7 @@ A terminal-based meeting companion with live transcription and AI chat — all w
 - **LLM Transcript Cleanup** — Automatically cleans up raw transcription (fixes grammar, removes filler words)
 - **Interactive Chat** — Query the meeting context with AI — ask questions, request summaries, find action items
 - **Multiple LLM Backends** — Ollama (local/private), OpenAI, or Google Gemini
-- **Auto-save** — Markdown transcript + JSON sidecar with timestamps, confidence scores, and raw/clean text pairs
+- **Auto-save** — Markdown transcript + JSONL sidecar with timestamps, confidence scores, and raw/clean text pairs
 - **Rich TUI** — Split-pane interface with live transcript, chat, and status bar with real-time audio level meter
 - **Audio Diagnostics** — Live microphone level indicator and automatic warnings when no speech is detected
 
@@ -320,7 +320,7 @@ Transcripts are saved to `~/meeting-transcripts/` (configurable via `--output` o
 ```
 ~/meeting-transcripts/
 ├── 2026-02-18_sprint-planning.md       # Clean, human-readable Markdown
-├── 2026-02-18_sprint-planning.json     # Structured data (timestamps, confidence, raw/clean pairs)
+├── 2026-02-18_sprint-planning.jsonl    # Structured data (one JSON object per segment)
 ```
 
 ### Markdown Transcript (`*.md`)
@@ -341,29 +341,14 @@ Transcripts are saved to `~/meeting-transcripts/` (configurable via `--output` o
 *Transcript ended at 15:30*
 ```
 
-### JSON Sidecar (`*.json`)
+### JSONL Sidecar (`*.jsonl`)
 
 ```json
-{
-  "title": "sprint-planning",
-  "date": "2026-02-18T14:00:00",
-  "segments": [
-    {
-      "segment_id": 1,
-      "start_time": 83.2,
-      "end_time": 87.5,
-      "timestamp": "00:01:23",
-      "raw_text": "We, uh, need to finalize the the Q2 budget by Friday.",
-      "clean_text": "We need to finalize the Q2 budget by Friday.",
-      "confidence": -0.35,
-      "language": "en"
-    }
-  ],
-  "total_segments": 47
-}
+{"segment_id":1,"start_time":83.2,"end_time":87.5,"timestamp":"00:01:23","raw_text":"We, uh, need to finalize the the Q2 budget by Friday.","clean_text":"We need to finalize the Q2 budget by Friday.","confidence":-0.35,"language":"en"}
+{"segment_id":2,"start_time":92.1,"end_time":96.7,"timestamp":"00:01:32","raw_text":"I think we should allocate more to marketing.","clean_text":"I think we should allocate more to marketing.","confidence":-0.31,"language":"en"}
 ```
 
-The JSON file enables programmatic access for search, analytics, or re-processing.
+The JSONL file enables programmatic access for search, analytics, or re-processing while keeping writes append-only and efficient for long meetings.
 
 ---
 
@@ -380,7 +365,7 @@ The JSON file enables programmatic access for search, analytics, or re-processin
                                           ┌───────────────────────┼──────────┐
                                           ▼                       ▼          ▼
                                    ┌────────────┐        ┌──────────┐ ┌──────────┐
-                                   │  Textual    │        │   .md    │ │  .json   │
+                                   │  Textual    │        │   .md    │ │  .jsonl  │
                                    │  TUI App    │        │ writer   │ │ writer   │
                                    │ (transcript │        └──────────┘ └──────────┘
                                    │  + chat)    │
@@ -399,6 +384,7 @@ The JSON file enables programmatic access for search, analytics, or re-processin
 | `No module named 'sounddevice'` | Install PortAudio: `brew install portaudio` (macOS) |
 | No audio devices listed | Check microphone permissions in System Settings → Privacy → Microphone |
 | Audio level meter is flat | Check microphone permissions, or select correct device with `--device` |
+| `Audio queue full; dropped oldest chunk` in logs | Transcription is temporarily slower than incoming audio; app keeps real-time behavior by dropping oldest buffered chunks |
 | "No speech detected" warning | Audio is arriving but VAD isn't triggering — speak louder or lower `vad.threshold` in config |
 | Ollama connection refused | Start the server: `ollama serve` |
 | Transcription is slow | Use a smaller model: `--model tiny` or `--model base` |
@@ -407,6 +393,25 @@ The JSON file enables programmatic access for search, analytics, or re-processin
 | Mic disconnected mid-meeting | The app auto-retries 3 times with backoff. If recovery fails, press `Ctrl+R` to restart |
 | LLM errors / timeouts | Requests are retried 3 times with exponential backoff. Raw text is used if cleanup fails |
 | Slow startup on first run | First launch downloads Whisper model (~142 MB for `base`). Subsequent starts use the cache and load in ~6s |
+
+Meeting TUI uses Textual, which renders the interface to `stderr`. If you run `uv run meeting-tui 2> meeting-tui.log`, the UI is redirected into the file and won't be visible in your terminal.
+
+For normal interactive use, run without stderr redirection:
+
+```bash
+uv run meeting-tui
+```
+
+Meeting TUI now writes application logs to a dedicated file:
+
+- `~/meeting-transcripts/meeting-tui.log` by default
+- If you use `--output`, logs go to `<output-dir>/meeting-tui.log`
+
+You can follow logs in real time without affecting the UI:
+
+```bash
+tail -f ~/meeting-transcripts/meeting-tui.log
+```
 
 ---
 

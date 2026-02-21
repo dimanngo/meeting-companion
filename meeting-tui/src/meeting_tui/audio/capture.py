@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from typing import TYPE_CHECKING
 
@@ -13,13 +14,18 @@ if TYPE_CHECKING:
     from meeting_tui.config import AudioConfig
 
 
+logger = logging.getLogger(__name__)
+
+
 class AudioCapture:
     """Captures microphone audio and feeds chunks to an asyncio queue."""
+
+    _MAX_QUEUE_CHUNKS = 200
 
     def __init__(self, config: AudioConfig, loop: asyncio.AbstractEventLoop | None = None):
         self.config = config
         self._loop = loop
-        self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
+        self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=self._MAX_QUEUE_CHUNKS)
         self._stream: sd.InputStream | None = None
         self._running = False
 
@@ -32,10 +38,27 @@ class AudioCapture:
     ) -> None:
         """Called from the PortAudio thread for each audio block."""
         if status:
-            pass  # Could log status flags (overflow, underflow)
+            logger.warning("Audio callback status: %s", status)
         chunk = indata[:, 0].copy() if indata.ndim > 1 else indata.copy().flatten()
         loop = self._loop or asyncio.get_event_loop()
-        loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
+        try:
+            loop.call_soon_threadsafe(self._enqueue_chunk, chunk)
+        except RuntimeError:
+            logger.debug("Event loop unavailable while enqueueing audio chunk")
+
+    def _enqueue_chunk(self, chunk: np.ndarray) -> None:
+        """Enqueue an audio chunk, dropping the oldest one if queue is full."""
+        if self._queue.full():
+            try:
+                self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            logger.warning("Audio queue full; dropped oldest chunk")
+
+        try:
+            self._queue.put_nowait(chunk)
+        except asyncio.QueueFull:
+            logger.warning("Audio queue still full; dropping incoming chunk")
 
     def start(self) -> None:
         """Start capturing audio from the microphone."""

@@ -2,10 +2,38 @@
 
 from __future__ import annotations
 
+import logging
 import click
 import sounddevice as sd
 
 from meeting_tui.config import load_config
+
+
+def _configure_file_logging(output_dir: str) -> str:
+    """Configure a dedicated file logger for meeting_tui logs.
+
+    Returns the absolute log file path.
+    """
+    from pathlib import Path
+
+    log_dir = Path(output_dir).expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = (log_dir / "meeting-tui.log").resolve()
+
+    base_logger = logging.getLogger("meeting_tui")
+    base_logger.setLevel(logging.INFO)
+    base_logger.propagate = False
+
+    # Replace existing handlers to avoid duplicate logs on re-entry.
+    base_logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    base_logger.addHandler(file_handler)
+
+    return str(log_path)
 
 
 @click.command()
@@ -68,6 +96,9 @@ def main(
         config_path=Path(config_path) if config_path else None,
         cli_overrides=cli_overrides if cli_overrides else None,
     )
+
+    log_path = _configure_file_logging(config.persistence.output_dir)
+    click.echo(f"Logging to: {log_path}")
 
     # Pre-load ML models *before* the Textual event loop starts.
     # CTranslate2 (faster-whisper) triggers a Python 3.13+ fds_to_keep
