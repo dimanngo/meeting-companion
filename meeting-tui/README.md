@@ -406,11 +406,23 @@ Meeting TUI now writes application logs to a dedicated file:
 
 - `~/meeting-transcripts/meeting-tui.log` by default
 - If you use `--output`, logs go to `<output-dir>/meeting-tui.log`
+- Size-based rotation is enabled by default (5 MB per file, 3 backups)
 
 You can follow logs in real time without affecting the UI:
 
 ```bash
 tail -f ~/meeting-transcripts/meeting-tui.log
+```
+
+Optional log rotation controls:
+
+```bash
+# Defaults
+MEETING_TUI_LOG_MAX_BYTES=5242880
+MEETING_TUI_LOG_BACKUP_COUNT=3
+
+# Disable rotation (single growing file)
+MEETING_TUI_LOG_MAX_BYTES=0
 ```
 
 ---

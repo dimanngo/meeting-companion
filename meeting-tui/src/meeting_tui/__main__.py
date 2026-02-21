@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from logging.handlers import RotatingFileHandler
 import click
 import sounddevice as sd
 
@@ -27,7 +29,19 @@ def _configure_file_logging(output_dir: str) -> str:
     # Replace existing handlers to avoid duplicate logs on re-entry.
     base_logger.handlers.clear()
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    max_bytes = int(os.environ.get("MEETING_TUI_LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+    backup_count = int(os.environ.get("MEETING_TUI_LOG_BACKUP_COUNT", "3"))
+
+    if max_bytes > 0 and backup_count > 0:
+        file_handler: logging.Handler = RotatingFileHandler(
+            log_path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+    else:
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     )
