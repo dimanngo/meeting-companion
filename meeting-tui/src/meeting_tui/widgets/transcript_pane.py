@@ -41,16 +41,26 @@ class TranscriptPane(Static):
         yield Static("📝 Live Transcript", id="transcript-title")
         yield RichLog(highlight=True, markup=True, wrap=True, id="transcript-log")
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._entries: list[str] = []
+
     @property
     def log_widget(self) -> RichLog:
         return self.query_one("#transcript-log", RichLog)
 
     def add_segment(self, timestamp: str, clean_text: str) -> None:
         """Add a cleaned transcript segment to the display."""
+        self._entries.append(f"[{timestamp}] {clean_text}")
         self.log_widget.write(f"[bold cyan]\\[{timestamp}][/bold cyan] {clean_text}")
 
     def add_raw_segment(self, timestamp: str, raw_text: str) -> None:
         """Add a raw (uncleaned) transcript segment."""
+        self._entries.append(f"[{timestamp}] RAW: {raw_text}")
         self.log_widget.write(
             f"[bold cyan]\\[{timestamp}][/bold cyan] [dim]{raw_text}[/dim]"
         )
+
+    def get_plain_text(self) -> str:
+        """Return the transcript history as plain text."""
+        return "\n".join(self._entries)

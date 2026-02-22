@@ -41,6 +41,7 @@ class ChatPane(Static):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._messages: list[str] = []  # Rendered message history
+        self._plain_messages: list[str] = []
         self._stream_tokens: list[str] = []
 
     def compose(self) -> ComposeResult:
@@ -65,9 +66,11 @@ class ChatPane(Static):
         self.add_user_message(text)
         self.post_message(ChatSubmitted(text))
 
-    def _write_message(self, markup: str) -> None:
+    def _write_message(self, markup: str, plain: str | None = None) -> None:
         """Write a message and track it in history."""
         self._messages.append(markup)
+        if plain is not None:
+            self._plain_messages.append(plain)
         self.log_widget.write(markup)
 
     def _rewrite_all(self, extra: str | None = None) -> None:
@@ -80,11 +83,11 @@ class ChatPane(Static):
 
     def add_user_message(self, text: str) -> None:
         """Display a user message in the chat log."""
-        self._write_message(f"[bold green]You:[/bold green] {text}")
+        self._write_message(f"[bold green]You:[/bold green] {text}", f"You: {text}")
 
     def add_assistant_message(self, text: str) -> None:
         """Display a complete assistant message."""
-        self._write_message(f"[bold blue]AI:[/bold blue] {text}")
+        self._write_message(f"[bold blue]AI:[/bold blue] {text}", f"AI: {text}")
 
     def begin_assistant_stream(self) -> None:
         """Begin streaming an assistant response."""
@@ -100,6 +103,13 @@ class ChatPane(Static):
         """Finish the streaming response — write final message."""
         accumulated = "".join(self._stream_tokens)
         self._stream_tokens = []
-        self._write_message(f"[bold blue]AI:[/bold blue] {accumulated}")
+        self._write_message(
+            f"[bold blue]AI:[/bold blue] {accumulated}",
+            f"AI: {accumulated}",
+        )
         # Re-render cleanly without the cursor
         self._rewrite_all()
+
+    def get_plain_text(self) -> str:
+        """Return chat history as plain text."""
+        return "\n".join(self._plain_messages)

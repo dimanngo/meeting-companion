@@ -4,25 +4,25 @@ Both review reports agree on the core bottlenecks (JSON persistence, chat render
 
 ## Phase 1 — Quick Wins (Low effort, High value)
 
-### 1. Fix transcription confidence bug *(Report 2 only)*
+### [√] 1. Fix transcription confidence bug *(Report 2 only)*
 
 In `src/meeting_tui/transcription/engine.py` L70, change `getattr(segment, "avg_logprob", 0.0)` → `getattr(segment, "avg_log_prob", getattr(segment, "avg_logprob", 0.0))` to match the actual `faster-whisper` attribute name while keeping a fallback for older versions. This immediately fixes the failing test at `tests/test_transcription.py` L64–76 and restores meaningful confidence output.
 
-### 2. Guard signal handler for cross-platform safety *(Report 2 only)*
+### [√] 2. Guard signal handler for cross-platform safety *(Report 2 only)*
 
 Wrap the `add_signal_handler` call at `src/meeting_tui/app.py` L139 in a `try/except (NotImplementedError, OSError)` block so the app doesn't crash on Windows or unsupported event loops.
 
-### 3. Add `close()` to `LLMBackend` base class *(Discovered during research)*
+### [√] 3. Add `close()` to `LLMBackend` base class *(Discovered during research)*
 
 Declare an `async def close(self)` method (default no-op) in `src/meeting_tui/llm/base.py` so `app.py` L525 can call it directly without `hasattr` duck-typing.
 
 ## Phase 2 — Critical Performance (Medium effort, High value)
 
-### 4. Refactor JSON persistence to append-only JSONL *(Both reports, P0 / Rank 2)*
+### [√] 4. Refactor JSON persistence to append-only JSONL *(Both reports, P0 / Rank 2)*
 
 Replace the full-rewrite `_save()` in `src/meeting_tui/persistence/json_writer.py` L65–73 with a JSON Lines strategy: open the output file in append mode and write one JSON object per line per segment. This drops cumulative I/O from $O(N^2)$ to $O(N)$. Update `add_segment()` to write only the new segment. Provide a `flush()` public method to replace the external `_save()` call in `src/meeting_tui/app.py` L500.
 
-### 5. Bound the audio queue *(Report 2 only, Rank 3)*
+### [√] 5. Bound the audio queue *(Report 2 only, Rank 3)*
 
 Set `maxsize` on the `asyncio.Queue` at `src/meeting_tui/audio/capture.py` L22 (e.g., 200 chunks ≈ ~30 s of audio at typical chunk sizes). In the `_audio_callback` at L32–38, handle `QueueFull` by dropping the oldest chunk or logging a warning. Also surface `status` flags (overflow/underflow) instead of silently ignoring them.
 

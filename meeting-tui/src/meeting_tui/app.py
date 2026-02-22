@@ -34,6 +34,9 @@ log = logging.getLogger(__name__)
 LLM_MAX_RETRIES = 3
 LLM_RETRY_DELAY = 1.0  # seconds, doubles on each retry
 SEGMENT_QUEUE_MAXSIZE = 128
+PANEL_MIN_WIDTH_PCT = 25
+PANEL_MAX_WIDTH_PCT = 75
+PANEL_STEP_PCT = 5
 
 
 def create_llm_backend(config: AppConfig) -> LLMBackend:
@@ -85,6 +88,10 @@ class MeetingApp(App):
         Binding("ctrl+r", "toggle_recording", "Record", show=True),
         Binding("ctrl+e", "export", "Export", show=True),
         Binding("ctrl+l", "switch_focus", "Switch Focus", show=True),
+        Binding("ctrl+t", "copy_transcript", "Copy Transcript", show=True),
+        Binding("ctrl+y", "copy_chat", "Copy Chat", show=True),
+        Binding("ctrl+shift+left", "resize_left", "Widen Left", show=True),
+        Binding("ctrl+shift+right", "resize_right", "Widen Right", show=True),
         Binding("ctrl+s", "label_speaker", "Speaker Label", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
@@ -122,6 +129,7 @@ class MeetingApp(App):
         self._silence_warned = False
         self._segment_queue: asyncio.Queue[SpeechSegment] | None = None
         self._segment_worker_task: asyncio.Task[None] | None = None
+        self._transcript_width_pct = 50
 
     def bell(self) -> None:
         """Override to disable the system bell completely."""
@@ -172,7 +180,15 @@ class MeetingApp(App):
         
         # Show ready state
         status.activity = ""
+        self._apply_panel_widths()
         self.notify("Ready to record. Press Ctrl+R to start.", severity="information", timeout=3)
+
+    def _apply_panel_widths(self) -> None:
+        """Apply current split widths to transcript and chat panes."""
+        transcript = self.query_one(TranscriptPane)
+        chat = self.query_one(ChatPane)
+        transcript.styles.width = f"{self._transcript_width_pct}%"
+        chat.styles.width = f"{100 - self._transcript_width_pct}%"
 
     def _signal_shutdown(self) -> None:
         """Handle SIGINT/SIGTERM for graceful shutdown."""
@@ -566,6 +582,42 @@ class MeetingApp(App):
             self.query_one(TranscriptPane).focus()
         else:
             chat_input.focus()
+
+    def action_copy_transcript(self) -> None:
+        """Copy transcript panel text to clipboard."""
+        transcript = self.query_one(TranscriptPane)
+        text = transcript.get_plain_text()
+        if not text:
+            self.notify("Transcript is empty.", severity="warning", timeout=2)
+            return
+        self.copy_to_clipboard(text)
+        self.notify("Transcript copied to clipboard.", severity="information", timeout=2)
+
+    def action_copy_chat(self) -> None:
+        """Copy chat panel text to clipboard."""
+        chat = self.query_one(ChatPane)
+        text = chat.get_plain_text()
+        if not text:
+            self.notify("Chat is empty.", severity="warning", timeout=2)
+            return
+        self.copy_to_clipboard(text)
+        self.notify("Chat copied to clipboard.", severity="information", timeout=2)
+
+    def action_resize_left(self) -> None:
+        """Widen the transcript panel and shrink chat panel."""
+        self._transcript_width_pct = min(
+            PANEL_MAX_WIDTH_PCT,
+            self._transcript_width_pct + PANEL_STEP_PCT,
+        )
+        self._apply_panel_widths()
+
+    def action_resize_right(self) -> None:
+        """Widen the chat panel and shrink transcript panel."""
+        self._transcript_width_pct = max(
+            PANEL_MIN_WIDTH_PCT,
+            self._transcript_width_pct - PANEL_STEP_PCT,
+        )
+        self._apply_panel_widths()
 
     async def action_quit(self) -> None:
         """Graceful shutdown — save everything before exiting."""
