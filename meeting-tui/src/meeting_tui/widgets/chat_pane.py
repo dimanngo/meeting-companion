@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from textual.app import ComposeResult
 from textual.message import Message
 from textual.widgets import Static, RichLog, Input
@@ -17,6 +19,9 @@ class ChatSubmitted(Message):
 
 class ChatPane(Static):
     """Chat pane with message history and input field."""
+
+    _STREAM_UPDATE_INTERVAL_SEC = 0.05
+    _STREAM_UPDATE_TOKEN_BATCH = 8
 
     DEFAULT_CSS = """
     ChatPane {
@@ -43,6 +48,8 @@ class ChatPane(Static):
         self._messages: list[str] = []  # Rendered message history
         self._plain_messages: list[str] = []
         self._stream_tokens: list[str] = []
+        self._stream_tokens_since_render = 0
+        self._last_stream_render_ts = 0.0
 
     def compose(self) -> ComposeResult:
         yield Static("💬 Chat", id="chat-title")
@@ -92,17 +99,35 @@ class ChatPane(Static):
     def begin_assistant_stream(self) -> None:
         """Begin streaming an assistant response."""
         self._stream_tokens = []
+        self._stream_tokens_since_render = 0
+        self._last_stream_render_ts = 0.0
+
+    def _render_stream_cursor(self) -> None:
+        """Render the current streaming assistant text with a cursor."""
+        accumulated = "".join(self._stream_tokens)
+        self._rewrite_all(f"[bold blue]AI:[/bold blue] {accumulated}▍")
+        self._stream_tokens_since_render = 0
+        self._last_stream_render_ts = time.monotonic()
 
     def append_stream_token(self, token: str) -> None:
         """Accumulate a token and live-update the display."""
         self._stream_tokens.append(token)
-        accumulated = "".join(self._stream_tokens)
-        self._rewrite_all(f"[bold blue]AI:[/bold blue] {accumulated}▍")
+        self._stream_tokens_since_render += 1
+        now = time.monotonic()
+        should_render = (
+            self._stream_tokens_since_render >= self._STREAM_UPDATE_TOKEN_BATCH
+            or (now - self._last_stream_render_ts) >= self._STREAM_UPDATE_INTERVAL_SEC
+        )
+        if should_render:
+            self._render_stream_cursor()
 
     def end_assistant_stream(self) -> None:
         """Finish the streaming response — write final message."""
+        if self._stream_tokens_since_render > 0:
+            self._render_stream_cursor()
         accumulated = "".join(self._stream_tokens)
         self._stream_tokens = []
+        self._stream_tokens_since_render = 0
         self._write_message(
             f"[bold blue]AI:[/bold blue] {accumulated}",
             f"AI: {accumulated}",
