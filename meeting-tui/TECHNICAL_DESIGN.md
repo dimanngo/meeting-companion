@@ -304,26 +304,39 @@ while True:
     _segment_queue.task_done()
 ```
 
-On stop, `_stop_recording()` flushes VAD, enqueues the final segment (if present), waits for `_drain_segment_queue()`, then cancels the worker.
+**`_cleanup_worker_loop()` — Delayed Cleanup/Persistence:**
+```
+while True:
+  entry = await _cleanup_queue.get()
+  try:
+    await _process_cleanup_entry(entry)
+  finally:
+    _cleanup_queue.task_done()
+```
+
+On stop, `_stop_recording()` flushes VAD, enqueues the final segment (if present), waits for both queues to drain (`_drain_pipeline_queues()`), then cancels both workers.
 
 **`_process_segment(segment)`:**
 1. Transcribe via `_engine.transcribe(audio, start, end)` → `TranscriptionResult`
 2. Skip if text is empty
 3. Format timestamp as `HH:MM:SS`
 4. Prepend speaker label if set
-5. Display raw text in `TranscriptPane` (dimmed)
-6. Clean via `_clean_with_retry(raw_text)` — 3 retries, exponential backoff
-7. Display clean text in `TranscriptPane`
-8. Persist to `.md` and `.jsonl` files
-9. Add to `ChatManager` transcript context
-10. Update word/segment counts in StatusBar
+5. Display raw text in `TranscriptPane` (dimmed) immediately
+6. Enqueue cleanup payload to `_cleanup_queue`
+
+**`_process_cleanup_entry(entry)`:**
+1. Clean via `_clean_with_retry(raw_text)` — 3 retries, exponential backoff
+2. Display clean text in `TranscriptPane`
+3. Persist to `.md` and `.jsonl` files
+4. Add to `ChatManager` transcript context
+5. Update word/segment counts in StatusBar
 
 **`_stop_recording()`:**
 1. Set `_recording = False`
 2. Stop `AudioCapture`
 3. Reset status bar
 4. Stop timer
-5. Flush remaining VAD segment, drain pending segment queue, then stop segment worker
+5. Flush remaining VAD segment, drain pending segment + cleanup queues, then stop workers
 
 **`_attempt_mic_recovery()`:**
 - On audio capture error, stop current stream
@@ -455,6 +468,8 @@ On stop, `_stop_recording()` flushes VAD, enqueues the final segment (if present
 - `threshold = 0.5` — VAD confidence threshold
 - `min_speech_frames = 6` — ~192 ms of consecutive speech to confirm start
 - `min_silence_frames = 30` — ~960 ms of consecutive silence to confirm end
+
+**Continuous Speech Split:** To keep raw transcript updates near real-time, long uninterrupted speech is force-split into segments (default max segment duration: 8 seconds), even if no long silence is detected yet.
 
 **Frame Size Validation:** On first chunk, validates that `len(chunk)` matches a supported Silero VAD frame size for the sample rate (`{512, 1024, 1536}` @ 16 kHz). Logs a warning if mismatched.
 
@@ -742,6 +757,7 @@ The application uses a single-process, single-event-loop architecture with strat
 | LLM API calls | Main thread (async I/O) | `httpx` / SDK async clients |
 | Pipeline loop | Textual worker | `run_worker()` capture + VAD only |
 | Segment processor | Main event loop task | `asyncio.create_task()` over bounded queue |
+| Cleanup processor | Main event loop task | `asyncio.create_task()` over bounded queue |
 | Timer | Textual interval | `set_interval(1.0)` |
 
 **Worker Usage:** The pipeline loop runs inside a Textual `run_worker(exclusive=True)` — meaning only one startup worker can exist at a time.

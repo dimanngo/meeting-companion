@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
@@ -34,9 +35,23 @@ log = logging.getLogger(__name__)
 LLM_MAX_RETRIES = 3
 LLM_RETRY_DELAY = 1.0  # seconds, doubles on each retry
 SEGMENT_QUEUE_MAXSIZE = 128
+CLEANUP_QUEUE_MAXSIZE = 256
 PANEL_MIN_WIDTH_PCT = 25
 PANEL_MAX_WIDTH_PCT = 75
 PANEL_STEP_PCT = 5
+
+
+@dataclass
+class CleanupEntry:
+    """Payload queued for delayed cleanup/persistence stage."""
+
+    start_time: float
+    end_time: float
+    timestamp: str
+    raw_text: str
+    speaker_prefix: str
+    confidence: float
+    language: str | None
 
 
 def create_llm_backend(config: AppConfig) -> LLMBackend:
@@ -131,6 +146,8 @@ class MeetingApp(App):
         self._silence_warned = False
         self._segment_queue: asyncio.Queue[SpeechSegment] | None = None
         self._segment_worker_task: asyncio.Task[None] | None = None
+        self._cleanup_queue: asyncio.Queue[CleanupEntry] | None = None
+        self._cleanup_worker_task: asyncio.Task[None] | None = None
         self._transcript_width_pct = 50
 
     def bell(self) -> None:
@@ -321,29 +338,40 @@ class MeetingApp(App):
             if segment:
                 await self._enqueue_segment(segment)
 
-        await self._drain_segment_queue()
+        await self._drain_pipeline_queues()
         await self._stop_segment_worker()
 
     def _start_segment_worker(self) -> None:
-        """Start background worker that processes detected speech segments."""
+        """Start background workers for segment processing and cleanup."""
         if self._segment_worker_task and not self._segment_worker_task.done():
             return
         self._segment_queue = asyncio.Queue(maxsize=SEGMENT_QUEUE_MAXSIZE)
+        self._cleanup_queue = asyncio.Queue(maxsize=CLEANUP_QUEUE_MAXSIZE)
         self._segment_worker_task = asyncio.create_task(self._segment_worker_loop())
+        self._cleanup_worker_task = asyncio.create_task(self._cleanup_worker_loop())
 
     async def _stop_segment_worker(self) -> None:
-        """Stop segment worker gracefully."""
-        task = self._segment_worker_task
+        """Stop segment/cleanup workers gracefully."""
+        segment_task = self._segment_worker_task
+        cleanup_task = self._cleanup_worker_task
         self._segment_worker_task = None
-        if task is None:
-            self._segment_queue = None
-            return
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        self._cleanup_worker_task = None
+
+        if segment_task is not None:
+            segment_task.cancel()
+            try:
+                await segment_task
+            except asyncio.CancelledError:
+                pass
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
+
         self._segment_queue = None
+        self._cleanup_queue = None
 
     async def _enqueue_segment(self, segment: SpeechSegment) -> None:
         """Enqueue a segment for background processing."""
@@ -352,10 +380,12 @@ class MeetingApp(App):
             return
         await self._segment_queue.put(segment)
 
-    async def _drain_segment_queue(self) -> None:
-        """Wait until all queued segments are fully processed."""
+    async def _drain_pipeline_queues(self) -> None:
+        """Wait until all queued segment and cleanup work is fully processed."""
         if self._segment_queue:
             await self._segment_queue.join()
+        if self._cleanup_queue:
+            await self._cleanup_queue.join()
 
     async def _segment_worker_loop(self) -> None:
         """Process queued speech segments serially in the background."""
@@ -368,6 +398,18 @@ class MeetingApp(App):
                 log.error("Unexpected segment processing error: %s", e)
             finally:
                 self._segment_queue.task_done()
+
+    async def _cleanup_worker_loop(self) -> None:
+        """Process queued cleanup/persistence work serially in the background."""
+        assert self._cleanup_queue is not None
+        while True:
+            entry = await self._cleanup_queue.get()
+            try:
+                await self._process_cleanup_entry(entry)
+            except Exception as e:
+                log.error("Unexpected cleanup processing error: %s", e)
+            finally:
+                self._cleanup_queue.task_done()
 
     def _update_timer(self) -> None:
         """Update the elapsed time in the status bar."""
@@ -445,7 +487,7 @@ class MeetingApp(App):
         await self._stop_recording()
 
     async def _process_segment(self, segment) -> None:
-        """Process a speech segment: transcribe, clean, display, save."""
+        """Process a speech segment: transcribe + raw display, then queue cleanup."""
         # Transcribe
         try:
             result = await self._engine.transcribe(
@@ -471,32 +513,52 @@ class MeetingApp(App):
         transcript_pane = self.query_one(TranscriptPane)
         transcript_pane.add_raw_segment(timestamp, f"{speaker_prefix}{result.text}")
 
-        # Clean via LLM with retry and backoff
-        status = self.query_one(StatusBar)
-        status.activity = "Cleaning transcript..."
-        clean_text = await self._clean_with_retry(result.text)
-        status.activity = ""
-
-        if speaker_prefix:
-            clean_text = f"{speaker_prefix}{clean_text}"
-
-        # Update display with clean text
-        transcript_pane.add_segment(timestamp, clean_text)
-
-        # Save to files
-        self._transcript_writer.append(timestamp, clean_text)
-        self._json_writer.add_segment(
+        cleanup_entry = CleanupEntry(
             start_time=segment.start_time,
             end_time=segment.end_time,
             timestamp=timestamp,
             raw_text=result.text,
-            clean_text=clean_text,
+            speaker_prefix=speaker_prefix,
             confidence=result.confidence,
             language=result.language,
         )
 
+        if not self._cleanup_queue:
+            await self._process_cleanup_entry(cleanup_entry)
+            return
+
+        await self._cleanup_queue.put(cleanup_entry)
+
+    async def _process_cleanup_entry(self, entry: CleanupEntry) -> None:
+        """Run delayed cleanup/persistence stage for a transcribed segment."""
+
+        # Clean via LLM with retry and backoff
+        status = self.query_one(StatusBar)
+        status.activity = "Cleaning transcript..."
+        clean_text = await self._clean_with_retry(entry.raw_text)
+        status.activity = ""
+
+        if entry.speaker_prefix:
+            clean_text = f"{entry.speaker_prefix}{clean_text}"
+
+        # Update display with clean text
+        transcript_pane = self.query_one(TranscriptPane)
+        transcript_pane.add_segment(entry.timestamp, clean_text)
+
+        # Save to files
+        self._transcript_writer.append(entry.timestamp, clean_text)
+        self._json_writer.add_segment(
+            start_time=entry.start_time,
+            end_time=entry.end_time,
+            timestamp=entry.timestamp,
+            raw_text=entry.raw_text,
+            clean_text=clean_text,
+            confidence=entry.confidence,
+            language=entry.language,
+        )
+
         # Update chat context
-        self._chat_manager.add_transcript_segment(timestamp, clean_text)
+        self._chat_manager.add_transcript_segment(entry.timestamp, clean_text)
 
         # Update stats
         self._word_count += len(clean_text.split())

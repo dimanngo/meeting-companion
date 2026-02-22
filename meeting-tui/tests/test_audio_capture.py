@@ -309,3 +309,18 @@ class TestVADProcessor:
                     results.append(result)
 
         assert len(results) == 2
+
+    @pytest.mark.asyncio
+    async def test_continuous_speech_is_force_split(self):
+        vad = self._make_vad(min_speech=2, min_silence=999)
+        vad._max_segment_seconds = 0.12
+
+        results = []
+        with patch.object(vad, "_get_confidence", return_value=0.9):
+            for _ in range(20):
+                result = await vad.process_chunk(self._chunk())
+                if result is not None:
+                    results.append(result)
+
+        assert len(results) >= 1
+        assert all(isinstance(segment, SpeechSegment) for segment in results)

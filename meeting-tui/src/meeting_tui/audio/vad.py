@@ -34,9 +34,15 @@ class VADProcessor:
         16000: {512, 1024, 1536},
     }
 
-    def __init__(self, config: VADConfig, sample_rate: int = 16000):
+    def __init__(
+        self,
+        config: VADConfig,
+        sample_rate: int = 16000,
+        max_segment_seconds: float = 8.0,
+    ):
         self.config = config
         self.sample_rate = sample_rate
+        self._max_segment_seconds = max_segment_seconds
         self._session: onnxruntime.InferenceSession | None = None
         self._onnx_state: np.ndarray | None = None
         self._context: np.ndarray | None = None
@@ -101,6 +107,7 @@ class VADProcessor:
 
         Uses a state machine: speech starts after min_speech_frames consecutive
         frames above threshold, ends after min_silence_frames below threshold.
+        Long continuous speech is force-split after max_segment_seconds.
         """
         if not self._frame_size_validated:
             self._frame_size_validated = True
@@ -149,6 +156,19 @@ class VADProcessor:
                     return segment
             else:
                 self._silence_frames = 0
+
+            if (
+                self._max_segment_seconds > 0
+                and (current_time - self._segment_start_time) >= self._max_segment_seconds
+                and self._current_segment
+            ):
+                segment = SpeechSegment(
+                    audio=np.concatenate(self._current_segment),
+                    start_time=self._segment_start_time,
+                    end_time=current_time,
+                )
+                self._reset_state()
+                return segment
 
         return None
 
