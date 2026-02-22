@@ -50,7 +50,7 @@ class VADProcessor:
         self._elapsed_samples: int = 0
         self._frame_size_validated = False
 
-    def _load_model(self) -> None:
+    def load_model(self) -> None:
         """Load the Silero VAD ONNX model from the silero_vad package."""
         if self._session is not None:
             return
@@ -71,10 +71,14 @@ class VADProcessor:
         self._onnx_state = np.zeros((2, 1, 128), dtype=np.float32)
         self._context = np.zeros((1, self._CONTEXT_SIZE), dtype=np.float32)
 
+    def _load_model(self) -> None:
+        """Backward-compatible alias for legacy callers."""
+        self.load_model()
+
     def _get_confidence(self, chunk: np.ndarray) -> float:
         """Get speech confidence for a single audio frame via ONNX Runtime."""
         if self._session is None:
-            self._load_model()
+            self.load_model()
 
         audio = chunk.astype(np.float32).reshape(1, -1)
         # Prepend the rolling context window

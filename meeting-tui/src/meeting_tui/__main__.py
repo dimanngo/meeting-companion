@@ -123,11 +123,11 @@ def main(
 
     click.echo("Loading VAD model...")
     vad = VADProcessor(config.vad, sample_rate=config.audio.sample_rate)
-    vad._load_model()
+    vad.load_model()
 
     click.echo(f"Loading Whisper '{config.transcription.model_size}' model...")
     engine = TranscriptionEngine(config.transcription)
-    engine._load_model()
+    engine.load_model()
 
     click.echo("Models loaded. Starting app...")
 

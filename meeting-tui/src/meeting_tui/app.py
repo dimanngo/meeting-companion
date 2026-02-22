@@ -245,7 +245,7 @@ class MeetingApp(App):
             status.activity = "Loading VAD model (first run may download)..."
             self.refresh()
             try:
-                await self._load_off_loop(self._vad._load_model, "VAD")
+                await self._load_off_loop(self._vad.load_model, "VAD")
             except Exception as e:
                 log.error("Failed to load VAD model: %s", e)
                 self.notify(f"VAD model error: {e}", severity="error", timeout=10)
@@ -257,7 +257,7 @@ class MeetingApp(App):
             status.activity = f"Loading Whisper '{self.config.transcription.model_size}' model..."
             self.refresh()
             try:
-                await self._load_off_loop(self._engine._load_model, "Whisper")
+                await self._load_off_loop(self._engine.load_model, "Whisper")
             except Exception as e:
                 log.error("Failed to load Whisper model: %s", e)
                 self.notify(f"Whisper model error: {e}", severity="error", timeout=10)

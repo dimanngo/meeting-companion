@@ -39,7 +39,7 @@ Replace the per-token `_rewrite_all()` in `src/meeting_tui/widgets/chat_pane.py`
 - Update `src/meeting_tui/chat/manager.py` L57–63 to pass `_messages` as a structured list instead of flattening into a single string via `_build_chat_prompt()`.
 - Update all three backends (openai, ollama, gemini) to map `ChatMessage` objects to their native message formats.
 
-### 8. Expose public model-loading API *(Report 2, Rank 8)*
+### [√] 8. Expose public model-loading API *(Report 2, Rank 8)*
 
 Rename `_load_model()` to `load_model()` in both `VADProcessor` and `TranscriptionEngine`. Update callers in `src/meeting_tui/__main__.py` L81–85 and `src/meeting_tui/app.py` L192, L201.
 

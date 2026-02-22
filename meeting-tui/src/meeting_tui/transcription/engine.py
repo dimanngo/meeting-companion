@@ -29,7 +29,7 @@ class TranscriptionEngine:
         self.config = config
         self._model = None
 
-    def _load_model(self) -> None:
+    def load_model(self) -> None:
         """Load the faster-whisper model (lazy initialization)."""
         if self._model is not None:
             return
@@ -39,6 +39,10 @@ class TranscriptionEngine:
             self.config.model_size,
             compute_type=self.config.compute_type,
         )
+
+    def _load_model(self) -> None:
+        """Backward-compatible alias for legacy callers."""
+        self.load_model()
 
     async def transcribe(
         self, audio: np.ndarray, start_time: float = 0.0, end_time: float = 0.0
@@ -53,7 +57,7 @@ class TranscriptionEngine:
     ) -> TranscriptionResult:
         """Synchronous transcription."""
         if self._model is None:
-            self._load_model()
+            self.load_model()
 
         segments, info = self._model.transcribe(
             audio,

@@ -132,8 +132,8 @@ src/meeting_tui/
 
 1. Parse CLI arguments
 2. `load_config()` — merge defaults → TOML → env vars → CLI overrides
-3. **Synchronously** load VAD model (`VADProcessor._load_model()`)
-4. **Synchronously** load Whisper model (`TranscriptionEngine._load_model()`)
+3. **Synchronously** load VAD model (`VADProcessor.load_model()`)
+4. **Synchronously** load Whisper model (`TranscriptionEngine.load_model()`)
 5. Construct `MeetingApp(config, vad=vad, engine=engine)` with pre-loaded models
 6. `app.run()` — enters the Textual event loop
 
@@ -476,7 +476,7 @@ On stop, `_stop_recording()` flushes VAD, enqueues the final segment (if present
 **Responsibility:** Convert speech audio to text using faster-whisper (CTranslate2 backend).
 
 **Model Loading:**
-- Lazy initialization via `_load_model()` (but typically pre-loaded in `__main__`)
+- Lazy initialization via `load_model()` (but typically pre-loaded in `__main__`)
 - Creates `WhisperModel(model_size, compute_type=compute_type)`
 - Default: `base` model, `int8` compute type
 
