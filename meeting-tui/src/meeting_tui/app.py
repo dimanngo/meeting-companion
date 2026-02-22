@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Header
 
 from meeting_tui.audio.capture import AudioCapture
-from meeting_tui.audio.vad import VADProcessor
+from meeting_tui.audio.vad import SpeechSegment, VADProcessor
 from meeting_tui.chat.manager import ChatManager
 from meeting_tui.config import AppConfig
 from meeting_tui.llm.base import LLMBackend
@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 LLM_MAX_RETRIES = 3
 LLM_RETRY_DELAY = 1.0  # seconds, doubles on each retry
+SEGMENT_QUEUE_MAXSIZE = 128
 
 
 def create_llm_backend(config: AppConfig) -> LLMBackend:
@@ -119,6 +120,8 @@ class MeetingApp(App):
         self._json_writer: JSONWriter | None = None
         self._timer_handle: object | None = None
         self._silence_warned = False
+        self._segment_queue: asyncio.Queue[SpeechSegment] | None = None
+        self._segment_worker_task: asyncio.Task[None] | None = None
 
     def bell(self) -> None:
         """Override to disable the system bell completely."""
@@ -264,6 +267,7 @@ class MeetingApp(App):
         self._recording = True
         self._recording_start = datetime.now()
         self._silence_warned = False
+        self._start_segment_worker()
         status.activity = ""
         status.recording = True
         self.notify("Recording started!", severity="information", timeout=3)
@@ -297,7 +301,55 @@ class MeetingApp(App):
         if self._vad:
             segment = self._vad.flush()
             if segment:
+                await self._enqueue_segment(segment)
+
+        await self._drain_segment_queue()
+        await self._stop_segment_worker()
+
+    def _start_segment_worker(self) -> None:
+        """Start background worker that processes detected speech segments."""
+        if self._segment_worker_task and not self._segment_worker_task.done():
+            return
+        self._segment_queue = asyncio.Queue(maxsize=SEGMENT_QUEUE_MAXSIZE)
+        self._segment_worker_task = asyncio.create_task(self._segment_worker_loop())
+
+    async def _stop_segment_worker(self) -> None:
+        """Stop segment worker gracefully."""
+        task = self._segment_worker_task
+        self._segment_worker_task = None
+        if task is None:
+            self._segment_queue = None
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self._segment_queue = None
+
+    async def _enqueue_segment(self, segment: SpeechSegment) -> None:
+        """Enqueue a segment for background processing."""
+        if not self._segment_queue:
+            await self._process_segment(segment)
+            return
+        await self._segment_queue.put(segment)
+
+    async def _drain_segment_queue(self) -> None:
+        """Wait until all queued segments are fully processed."""
+        if self._segment_queue:
+            await self._segment_queue.join()
+
+    async def _segment_worker_loop(self) -> None:
+        """Process queued speech segments serially in the background."""
+        assert self._segment_queue is not None
+        while True:
+            segment = await self._segment_queue.get()
+            try:
                 await self._process_segment(segment)
+            except Exception as e:
+                log.error("Unexpected segment processing error: %s", e)
+            finally:
+                self._segment_queue.task_done()
 
     def _update_timer(self) -> None:
         """Update the elapsed time in the status bar."""
@@ -335,7 +387,7 @@ class MeetingApp(App):
             if segment is not None:
                 self._silence_warned = False
                 status.no_speech_warning = False
-                await self._process_segment(segment)
+                await self._enqueue_segment(segment)
             elif not self._silence_warned and self._recording_start:
                 elapsed = (datetime.now() - self._recording_start).total_seconds()
                 if elapsed > 15.0 and self._segment_count == 0:

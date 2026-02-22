@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -28,6 +29,8 @@ class AudioCapture:
         self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=self._MAX_QUEUE_CHUNKS)
         self._stream: sd.InputStream | None = None
         self._running = False
+        self._dropped_chunks = 0
+        self._last_drop_log_monotonic = 0.0
 
     @property
     def queue(self) -> asyncio.Queue[np.ndarray]:
@@ -53,7 +56,16 @@ class AudioCapture:
                 self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 pass
-            logger.warning("Audio queue full; dropped oldest chunk")
+            self._dropped_chunks += 1
+            now = time.monotonic()
+            if now - self._last_drop_log_monotonic >= 1.0:
+                logger.warning(
+                    "Audio queue full; dropped %d chunk(s) in the last %.1f s",
+                    self._dropped_chunks,
+                    now - self._last_drop_log_monotonic if self._last_drop_log_monotonic else 1.0,
+                )
+                self._dropped_chunks = 0
+                self._last_drop_log_monotonic = now
 
         try:
             self._queue.put_nowait(chunk)
