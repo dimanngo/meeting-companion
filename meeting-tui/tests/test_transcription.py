@@ -124,7 +124,7 @@ class TestTranscriptCleaner:
 
         assert result == "We need to finalize the budget."
         mock_llm.complete.assert_called_once()
-        prompt = mock_llm.complete.call_args[0][0]
+        prompt = mock_llm.complete.call_args[0][0][0].content
         assert "finalize the budget" in prompt
 
     @pytest.mark.asyncio

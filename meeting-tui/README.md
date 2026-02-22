@@ -149,6 +149,12 @@ While the meeting is running (or after stopping), use the **Chat** pane on the r
 | `Ctrl+R` | Start / stop recording |
 | `Ctrl+E` | Export — save transcript now (also auto-saves continuously) |
 | `Ctrl+L` | Switch focus between transcript pane and chat input |
+| `Ctrl+T` | Copy transcript pane to clipboard |
+| `Ctrl+Y` | Copy chat pane to clipboard |
+| `Ctrl+Shift+Left` | Widen transcript pane |
+| `Ctrl+Shift+Right` | Widen chat pane |
+| `Option+Shift+Left` | Widen transcript pane (fallback for terminals where Ctrl+Shift+Arrow is reserved) |
+| `Option+Shift+Right` | Widen chat pane (fallback for terminals where Ctrl+Shift+Arrow is reserved) |
 | `Ctrl+S` | Set speaker label — tags subsequent transcript segments with a name |
 | `Tab` | Cycle focus across all UI elements |
 | `Ctrl+Q` | Quit (gracefully saves transcript and chat history) |

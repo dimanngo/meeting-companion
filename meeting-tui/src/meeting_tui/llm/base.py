@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import AsyncIterator
+
+
+@dataclass
+class ChatMessage:
+    """Structured chat message passed to LLM backends."""
+
+    role: str
+    content: str
 
 
 class LLMBackend(ABC):
     """Abstract base class for LLM backends."""
 
     @abstractmethod
-    async def complete(self, prompt: str, context: str = "") -> str:
-        """Generate a completion for the given prompt.
+    async def complete(self, messages: list[ChatMessage], context: str = "") -> str:
+        """Generate a completion for the given structured chat history.
 
         Args:
-            prompt: The user prompt / instruction.
+            messages: Structured chat history including user/assistant turns.
             context: Optional system context (e.g., transcript).
 
         Returns:
@@ -23,11 +32,11 @@ class LLMBackend(ABC):
         ...
 
     @abstractmethod
-    async def stream(self, prompt: str, context: str = "") -> AsyncIterator[str]:
+    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
         """Stream a completion token-by-token.
 
         Args:
-            prompt: The user prompt / instruction.
+            messages: Structured chat history including user/assistant turns.
             context: Optional system context (e.g., transcript).
 
         Yields:

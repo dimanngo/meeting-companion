@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 from openai import AsyncOpenAI
 
-from meeting_tui.llm.base import LLMBackend
+from meeting_tui.llm.base import ChatMessage, LLMBackend
 
 
 class OpenAIBackend(LLMBackend):
@@ -16,19 +16,19 @@ class OpenAIBackend(LLMBackend):
         self.model = model
         self._client = AsyncOpenAI(api_key=api_key)
 
-    async def complete(self, prompt: str, context: str = "") -> str:
-        messages = self._build_messages(prompt, context)
+    async def complete(self, messages: list[ChatMessage], context: str = "") -> str:
+        payload = self._build_messages(messages, context)
         response = await self._client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=payload,
         )
         return response.choices[0].message.content or ""
 
-    async def stream(self, prompt: str, context: str = "") -> AsyncIterator[str]:
-        messages = self._build_messages(prompt, context)
+    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
+        payload = self._build_messages(messages, context)
         stream = await self._client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=payload,
             stream=True,
         )
         async for chunk in stream:
@@ -36,12 +36,13 @@ class OpenAIBackend(LLMBackend):
                 yield chunk.choices[0].delta.content
 
     @staticmethod
-    def _build_messages(prompt: str, context: str) -> list[dict]:
-        messages = []
+    def _build_messages(messages: list[ChatMessage], context: str) -> list[dict]:
+        payload = []
         if context:
-            messages.append({"role": "system", "content": context})
-        messages.append({"role": "user", "content": prompt})
-        return messages
+            payload.append({"role": "system", "content": context})
+        for message in messages:
+            payload.append({"role": message.role, "content": message.content})
+        return payload
 
     async def close(self) -> None:
         await self._client.close()

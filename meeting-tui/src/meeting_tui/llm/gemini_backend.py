@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from meeting_tui.llm.base import LLMBackend
+from meeting_tui.llm.base import ChatMessage, LLMBackend
 
 
 class GeminiBackend(LLMBackend):
@@ -22,10 +22,10 @@ class GeminiBackend(LLMBackend):
         self.thinking_level = thinking_level
         self._client = genai.Client(api_key=api_key)
 
-    async def complete(self, prompt: str, context: str = "") -> str:
+    async def complete(self, messages: list[ChatMessage], context: str = "") -> str:
         from google.genai import types
 
-        contents = self._build_contents(prompt, context)
+        contents = self._build_contents(messages, context)
         config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(
                 thinking_budget=self._thinking_budget(),
@@ -38,10 +38,10 @@ class GeminiBackend(LLMBackend):
         )
         return response.text or ""
 
-    async def stream(self, prompt: str, context: str = "") -> AsyncIterator[str]:
+    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
         from google.genai import types
 
-        contents = self._build_contents(prompt, context)
+        contents = self._build_contents(messages, context)
         config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(
                 thinking_budget=self._thinking_budget(),
@@ -61,7 +61,7 @@ class GeminiBackend(LLMBackend):
         return budgets.get(self.thinking_level, 1024)
 
     @staticmethod
-    def _build_contents(prompt: str, context: str) -> list:
+    def _build_contents(messages: list[ChatMessage], context: str) -> list:
         """Build contents for the Gemini API."""
         from google.genai import types
 
@@ -71,14 +71,12 @@ class GeminiBackend(LLMBackend):
                 role="user",
                 parts=[types.Part(text=f"Context:\n{context}")],
             ))
+        for message in messages:
+            role = "model" if message.role == "assistant" else "user"
             contents.append(types.Content(
-                role="model",
-                parts=[types.Part(text="I'll use this context to help answer your questions.")],
+                role=role,
+                parts=[types.Part(text=message.content)],
             ))
-        contents.append(types.Content(
-            role="user",
-            parts=[types.Part(text=prompt)],
-        ))
         return contents
 
     async def close(self) -> None:

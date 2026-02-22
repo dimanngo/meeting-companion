@@ -16,7 +16,7 @@ class TestChatManager:
         mock_llm = AsyncMock()
         mock_llm.complete.return_value = "AI response"
 
-        async def mock_stream(prompt, context=""):
+        async def mock_stream(messages, context=""):
             for word in ["AI", " ", "response"]:
                 yield word
 
@@ -56,20 +56,26 @@ class TestChatManager:
         assert "meeting assistant" in ctx.lower()
         assert "Test transcript" in ctx
 
-    def test_build_chat_prompt_with_history(self):
+    def test_build_messages_with_history(self):
         mgr, _ = self._make_manager()
         mgr._history.append(ChatMessage(role="user", content="What happened?"))
         mgr._history.append(ChatMessage(role="assistant", content="Nothing yet."))
 
-        prompt = mgr._build_chat_prompt("Tell me more")
-        assert "User: What happened?" in prompt
-        assert "Assistant: Nothing yet." in prompt
-        assert "User: Tell me more" in prompt
+        messages = mgr._build_messages("Tell me more")
+        assert len(messages) == 3
+        assert messages[0].role == "user"
+        assert messages[0].content == "What happened?"
+        assert messages[1].role == "assistant"
+        assert messages[1].content == "Nothing yet."
+        assert messages[2].role == "user"
+        assert messages[2].content == "Tell me more"
 
-    def test_build_chat_prompt_empty_history(self):
+    def test_build_messages_empty_history(self):
         mgr, _ = self._make_manager()
-        prompt = mgr._build_chat_prompt("Hello")
-        assert prompt == "User: Hello"
+        messages = mgr._build_messages("Hello")
+        assert len(messages) == 1
+        assert messages[0].role == "user"
+        assert messages[0].content == "Hello"
 
     @pytest.mark.asyncio
     async def test_send_message(self):
@@ -114,8 +120,11 @@ class TestChatManager:
         await mgr.send_message("Question?")
 
         mock_llm.complete.assert_called_once()
-        call_kwargs = mock_llm.complete.call_args
-        context = call_kwargs[1].get("context", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        call_args = mock_llm.complete.call_args
+        context = call_args[1].get("context", call_args[0][1] if len(call_args[0]) > 1 else "")
+        messages = call_args[0][0]
+        assert messages[-1].role == "user"
+        assert messages[-1].content == "Question?"
         assert "Important meeting content" in context
 
     def test_history_returns_copy(self):

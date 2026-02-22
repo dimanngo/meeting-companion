@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from meeting_tui.llm.base import LLMBackend
 
+from meeting_tui.llm.base import ChatMessage
+
 CLEANUP_PROMPT = """\
 You are a transcript cleanup assistant. Clean up the following raw meeting transcript segment.
 
@@ -36,5 +38,5 @@ class TranscriptCleaner:
             return raw_text
 
         prompt = CLEANUP_PROMPT.format(text=raw_text)
-        result = await self._llm.complete(prompt)
+        result = await self._llm.complete([ChatMessage(role="user", content=prompt)])
         return result.strip()

@@ -90,8 +90,10 @@ class MeetingApp(App):
         Binding("ctrl+l", "switch_focus", "Switch Focus", show=True),
         Binding("ctrl+t", "copy_transcript", "Copy Transcript", show=True),
         Binding("ctrl+y", "copy_chat", "Copy Chat", show=True),
-        Binding("ctrl+shift+left", "resize_left", "Widen Left", show=True),
-        Binding("ctrl+shift+right", "resize_right", "Widen Right", show=True),
+        Binding("ctrl+shift+left", "resize_left", "Widen Left", show=True, priority=True),
+        Binding("ctrl+shift+right", "resize_right", "Widen Right", show=True, priority=True),
+        Binding("alt+shift+left", "resize_left", show=False, priority=True),
+        Binding("alt+shift+right", "resize_right", show=False, priority=True),
         Binding("ctrl+s", "label_speaker", "Speaker Label", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]

@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 import httpx
 
-from meeting_tui.llm.base import LLMBackend
+from meeting_tui.llm.base import ChatMessage, LLMBackend
 
 
 class OllamaBackend(LLMBackend):
@@ -17,22 +17,22 @@ class OllamaBackend(LLMBackend):
         self.model = model
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0)
 
-    async def complete(self, prompt: str, context: str = "") -> str:
-        messages = self._build_messages(prompt, context)
+    async def complete(self, messages: list[ChatMessage], context: str = "") -> str:
+        payload = self._build_messages(messages, context)
         response = await self._client.post(
             "/api/chat",
-            json={"model": self.model, "messages": messages, "stream": False},
+            json={"model": self.model, "messages": payload, "stream": False},
         )
         response.raise_for_status()
         data = response.json()
         return data["message"]["content"]
 
-    async def stream(self, prompt: str, context: str = "") -> AsyncIterator[str]:
-        messages = self._build_messages(prompt, context)
+    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
+        payload = self._build_messages(messages, context)
         async with self._client.stream(
             "POST",
             "/api/chat",
-            json={"model": self.model, "messages": messages, "stream": True},
+            json={"model": self.model, "messages": payload, "stream": True},
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -44,12 +44,13 @@ class OllamaBackend(LLMBackend):
                         yield content
 
     @staticmethod
-    def _build_messages(prompt: str, context: str) -> list[dict]:
-        messages = []
+    def _build_messages(messages: list[ChatMessage], context: str) -> list[dict]:
+        payload = []
         if context:
-            messages.append({"role": "system", "content": context})
-        messages.append({"role": "user", "content": prompt})
-        return messages
+            payload.append({"role": "system", "content": context})
+        for message in messages:
+            payload.append({"role": message.role, "content": message.content})
+        return payload
 
     async def close(self) -> None:
         await self._client.aclose()

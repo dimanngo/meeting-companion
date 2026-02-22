@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from meeting_tui.llm.base import ChatMessage
+
 
 # --- Ollama Backend tests ---
 
@@ -25,7 +27,10 @@ class TestOllamaBackend:
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(backend._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            result = await backend.complete("Say hello", context="Be friendly")
+            result = await backend.complete(
+                [ChatMessage(role="user", content="Say hello")],
+                context="Be friendly",
+            )
 
         assert result == "Hello from Ollama"
         mock_post.assert_called_once()
@@ -45,24 +50,27 @@ class TestOllamaBackend:
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(backend._client, "post", new_callable=AsyncMock, return_value=mock_response):
-            result = await backend.complete("Hello")
+            result = await backend.complete([ChatMessage(role="user", content="Hello")])
 
         assert result == "Hi"
 
     def test_build_messages_with_context(self):
         from meeting_tui.llm.ollama_backend import OllamaBackend
 
-        messages = OllamaBackend._build_messages("Hello", "System context")
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
+        payload = OllamaBackend._build_messages(
+            [ChatMessage(role="user", content="Hello")],
+            "System context",
+        )
+        assert len(payload) == 2
+        assert payload[0]["role"] == "system"
+        assert payload[1]["role"] == "user"
 
     def test_build_messages_without_context(self):
         from meeting_tui.llm.ollama_backend import OllamaBackend
 
-        messages = OllamaBackend._build_messages("Hello", "")
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
+        payload = OllamaBackend._build_messages([ChatMessage(role="user", content="Hello")], "")
+        assert len(payload) == 1
+        assert payload[0]["role"] == "user"
 
 
 # --- OpenAI Backend tests ---
@@ -86,7 +94,7 @@ class TestOpenAIBackend:
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
             backend = OpenAIBackend(api_key="test-key", model="gpt-4o-mini")
-            result = await backend.complete("Say hello")
+            result = await backend.complete([ChatMessage(role="user", content="Say hello")])
 
         assert result == "Hello from OpenAI"
 
@@ -105,22 +113,22 @@ class TestOpenAIBackend:
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
             backend = OpenAIBackend(api_key="test-key")
-            result = await backend.complete("Hello")
+            result = await backend.complete([ChatMessage(role="user", content="Hello")])
 
         assert result == ""
 
     def test_build_messages_with_context(self):
         from meeting_tui.llm.openai_backend import OpenAIBackend
 
-        messages = OpenAIBackend._build_messages("Hello", "Context")
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
+        payload = OpenAIBackend._build_messages([ChatMessage(role="user", content="Hello")], "Context")
+        assert len(payload) == 2
+        assert payload[0]["role"] == "system"
 
     def test_build_messages_without_context(self):
         from meeting_tui.llm.openai_backend import OpenAIBackend
 
-        messages = OpenAIBackend._build_messages("Hello", "")
-        assert len(messages) == 1
+        payload = OpenAIBackend._build_messages([ChatMessage(role="user", content="Hello")], "")
+        assert len(payload) == 1
 
 
 # --- Gemini Backend tests ---
@@ -163,7 +171,7 @@ class TestGeminiBackend:
             mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             backend = GeminiBackend(api_key="test-key", model="gemini-2.5-flash-preview")
-            result = await backend.complete("Hello")
+            result = await backend.complete([ChatMessage(role="user", content="Hello")])
 
         assert result == "Hello from Gemini"
 
@@ -180,6 +188,6 @@ class TestGeminiBackend:
             mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             backend = GeminiBackend(api_key="test-key")
-            result = await backend.complete("Hello")
+            result = await backend.complete([ChatMessage(role="user", content="Hello")])
 
         assert result == ""

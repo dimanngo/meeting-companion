@@ -26,13 +26,13 @@ Replace the full-rewrite `_save()` in `src/meeting_tui/persistence/json_writer.p
 
 Set `maxsize` on the `asyncio.Queue` at `src/meeting_tui/audio/capture.py` L22 (e.g., 200 chunks ≈ ~30 s of audio at typical chunk sizes). In the `_audio_callback` at L32–38, handle `QueueFull` by dropping the oldest chunk or logging a warning. Also surface `status` flags (overflow/underflow) instead of silently ignoring them.
 
-### 6. Optimize chat pane streaming rendering *(Both reports, P1 / Rank 4)*
+### [√] 6. Optimize chat pane streaming rendering *(Both reports, P1 / Rank 4)*
 
 Replace the per-token `_rewrite_all()` in `src/meeting_tui/widgets/chat_pane.py` L75–78 with in-place appending to the last `RichLog` line, or batch UI updates on a timer (e.g., every 50 ms). Also fix the redundant double-render in `end_assistant_stream()` at L80–85.
 
 ## Phase 3 — LLM Architecture (Medium effort, High value)
 
-### 7. Refactor chat prompt to structured message lists *(Report 1 only, P0)*
+### [√] 7. Refactor chat prompt to structured message lists *(Report 1 only, P0)*
 
 - Define a `ChatMessage` dataclass (`role: str`, `content: str`) in `src/meeting_tui/llm/base.py`.
 - Change `LLMBackend.complete()` and `stream()` signatures from `(prompt: str, context: str)` to accept `messages: list[ChatMessage]` with a `context: str` for the system prompt.

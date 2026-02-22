@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import AsyncIterator, TYPE_CHECKING
+
+from meeting_tui.llm.base import ChatMessage
 
 if TYPE_CHECKING:
     from meeting_tui.llm.base import LLMBackend
@@ -16,12 +17,6 @@ Reference timestamps when relevant. If something wasn't discussed in the transcr
 
 MEETING TRANSCRIPT:
 {transcript}"""
-
-
-@dataclass
-class ChatMessage:
-    role: str  # "user" or "assistant"
-    content: str
 
 
 class ChatManager:
@@ -60,21 +55,16 @@ class ChatManager:
         transcript = self._build_transcript_context()
         return SYSTEM_PROMPT.format(transcript=transcript)
 
-    def _build_chat_prompt(self, user_message: str) -> str:
-        """Build prompt including chat history."""
-        parts = []
-        for msg in self._history:
-            prefix = "User" if msg.role == "user" else "Assistant"
-            parts.append(f"{prefix}: {msg.content}")
-        parts.append(f"User: {user_message}")
-        return "\n\n".join(parts)
+    def _build_messages(self, user_message: str) -> list[ChatMessage]:
+        """Build structured messages including chat history and current user message."""
+        return [*self._history, ChatMessage(role="user", content=user_message)]
 
     async def send_message(self, user_message: str) -> str:
         """Send a message and get a complete response."""
         context = self._build_context()
-        prompt = self._build_chat_prompt(user_message)
+        messages = self._build_messages(user_message)
         self._history.append(ChatMessage(role="user", content=user_message))
-        response = await self._llm.complete(prompt, context=context)
+        response = await self._llm.complete(messages, context=context)
 
         self._history.append(ChatMessage(role="assistant", content=response))
         return response
@@ -82,11 +72,11 @@ class ChatManager:
     async def stream_message(self, user_message: str) -> AsyncIterator[str]:
         """Send a message and stream the response token-by-token."""
         context = self._build_context()
-        prompt = self._build_chat_prompt(user_message)
+        messages = self._build_messages(user_message)
         self._history.append(ChatMessage(role="user", content=user_message))
 
         full_response = []
-        async for token in self._llm.stream(prompt, context=context):
+        async for token in self._llm.stream(messages, context=context):
             full_response.append(token)
             yield token
 

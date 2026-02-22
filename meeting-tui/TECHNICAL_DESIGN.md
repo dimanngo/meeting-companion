@@ -96,7 +96,7 @@ src/meeting_tui/
 │   └── gemini_backend.py    # Google Gemini API backend
 │
 ├── chat/
-│   └── manager.py           # Chat context, history, prompt assembly
+│   └── manager.py           # Chat context + structured message assembly
 │
 ├── persistence/
 │   ├── transcript_writer.py # Append-only Markdown writer
@@ -140,6 +140,11 @@ src/meeting_tui/
 **Design rationale — pre-loading models:** CTranslate2 (used by faster-whisper) triggers a Python 3.13+ `fds_to_keep` race condition when loaded from any thread inside an asyncio loop. Loading models synchronously before `app.run()` avoids this entirely. Progress messages are printed to stdout before the TUI takes over.
 
 **Device Resolution:** `_resolve_device_by_name(name)` performs case-insensitive substring matching against `sounddevice.query_devices()`. If exactly one input device matches, its index is returned. Ambiguous matches print all candidates and exit.
+
+**File Logging:** Startup configures a dedicated `meeting_tui` logger writing to `{output_dir}/meeting-tui.log`.
+- Default mode uses `RotatingFileHandler` (`5 MB`, `3` backups).
+- Rotation can be configured with `MEETING_TUI_LOG_MAX_BYTES` and `MEETING_TUI_LOG_BACKUP_COUNT`.
+- If either is non-positive, logging falls back to a plain non-rotating file handler.
 
 ---
 
@@ -217,6 +222,12 @@ src/meeting_tui/
 | `Ctrl+R` | `action_toggle_recording` | Start/stop recording |
 | `Ctrl+E` | `action_export` | Force-save transcript files |
 | `Ctrl+L` | `action_switch_focus` | Toggle focus between transcript and chat input |
+| `Ctrl+T` | `action_copy_transcript` | Copy transcript panel text |
+| `Ctrl+Y` | `action_copy_chat` | Copy chat panel text |
+| `Ctrl+Shift+Left` | `action_resize_left` | Widen transcript pane |
+| `Ctrl+Shift+Right` | `action_resize_right` | Widen chat pane |
+| `Option+Shift+Left` | `action_resize_left` | Fallback widen transcript pane (terminal-dependent) |
+| `Option+Shift+Right` | `action_resize_right` | Fallback widen chat pane (terminal-dependent) |
 | `Ctrl+S` | `action_label_speaker` | Open speaker label modal |
 | `Ctrl+Q` | `action_quit` | Graceful shutdown |
 
@@ -243,16 +254,19 @@ Command palette is disabled (`ENABLE_COMMAND_PALETTE = False`).
 | `_transcript_writer` | `TranscriptWriter \| None` | Markdown writer |
 | `_json_writer` | `JSONWriter \| None` | JSON writer |
 | `_timer_handle` | `object \| None` | Timer interval handle |
+| `_segment_queue` | `asyncio.Queue[SpeechSegment] \| None` | Decouples VAD detection from segment processing |
+| `_segment_worker_task` | `asyncio.Task[None] \| None` | Background segment-processing task |
+| `_transcript_width_pct` | `int` | Left pane width percentage for resizable split |
 
 #### 3.3.4 Lifecycle
 
 **`on_mount()`:**
-1. Register `SIGINT`/`SIGTERM` handlers for graceful shutdown
+1. Register `SIGINT`/`SIGTERM` handlers for graceful shutdown (when supported by the platform loop)
 2. Create LLM backend via `create_llm_backend(config)` — factory function
 3. Create `TranscriptionEngine`, `TranscriptCleaner`, `ChatManager`
 4. Create `VADProcessor` (if not pre-loaded)
 5. Create `TranscriptWriter` and `JSONWriter`
-6. Set status bar model name
+6. Set status bar model name and apply initial pane widths
 7. Show "Ready to record" notification
 
 **`action_toggle_recording()`:**
@@ -264,8 +278,9 @@ Command palette is disabled (`ENABLE_COMMAND_PALETTE = False`).
 1. If models not pre-loaded: load VAD → load Whisper (blocking via `_load_off_loop`)
 2. Create `AudioCapture` with event loop reference
 3. Start the `sd.InputStream`
-4. Set `_recording = True`, start 1-second timer
-5. Enter `_pipeline_loop()` — runs in the same worker
+4. Start segment worker (`_start_segment_worker()`) with a bounded async queue
+5. Set `_recording = True`, start 1-second timer
+6. Enter `_pipeline_loop()` — capture/VAD loop that enqueues segments
 
 **`_pipeline_loop()` — Main Processing Loop:**
 ```
@@ -274,10 +289,22 @@ while _recording:
     update audio_level on StatusBar
     segment = await vad.process_chunk(chunk)
     if segment:
-        await _process_segment(segment)
+    await _enqueue_segment(segment)
     elif 15s elapsed with 0 segments:
         show no-speech warning
 ```
+
+**`_segment_worker_loop()` — Background Segment Processing:**
+```
+while True:
+  segment = await _segment_queue.get()
+  try:
+    await _process_segment(segment)
+  finally:
+    _segment_queue.task_done()
+```
+
+On stop, `_stop_recording()` flushes VAD, enqueues the final segment (if present), waits for `_drain_segment_queue()`, then cancels the worker.
 
 **`_process_segment(segment)`:**
 1. Transcribe via `_engine.transcribe(audio, start, end)` → `TranscriptionResult`
@@ -296,14 +323,20 @@ while _recording:
 2. Stop `AudioCapture`
 3. Reset status bar
 4. Stop timer
-5. Flush remaining VAD segment
+5. Flush remaining VAD segment, drain pending segment queue, then stop segment worker
 
 **`_attempt_mic_recovery()`:**
 - On audio capture error, stop current stream
 - Retry 3 times with increasing delays (2s, 4s, 6s)
 - On failure: notify user, stop recording
 
-#### 3.3.5 Chat Handling
+#### 3.3.5 Panel Utilities
+
+- `action_copy_transcript()` copies `TranscriptPane.get_plain_text()` to clipboard.
+- `action_copy_chat()` copies `ChatPane.get_plain_text()` to clipboard.
+- `action_resize_left()`/`action_resize_right()` adjust split widths in bounded 5% steps (30%–70%) via `_apply_panel_widths()`.
+
+#### 3.3.6 Chat Handling
 
 **`on_chat_submitted(event: ChatSubmitted)`:**
 1. If `_loading`: show "still loading" message, return
@@ -314,7 +347,7 @@ while _recording:
    - `end_assistant_stream()` on `ChatPane`
 3. On all retries failed: display error message
 
-#### 3.3.6 LLM Retry Strategy
+#### 3.3.7 LLM Retry Strategy
 
 | Parameter | Value |
 |-----------|-------|
@@ -323,7 +356,7 @@ while _recording:
 | Backoff | `delay *= 2` per retry |
 | Fallback | Raw text returned (transcript cleanup), error shown (chat) |
 
-#### 3.3.7 Graceful Shutdown (`action_quit`)
+#### 3.3.8 Graceful Shutdown (`action_quit`)
 
 1. Stop recording if active
 2. Finalize transcript writer (append footer)
@@ -331,15 +364,15 @@ while _recording:
 4. Close LLM client if applicable
 5. `self.exit()`
 
-#### 3.3.8 Speaker Labeling
+#### 3.3.9 Speaker Labeling
 
 `SpeakerLabelScreen` — a `ModalScreen` that prompts for a speaker name. The label is prepended as `[SpeakerName]` to subsequent transcript segments. Empty input clears the label.
 
-#### 3.3.9 Export
+#### 3.3.10 Export
 
 `action_export()` force-saves the current JSON file and shows a notification with both output file paths.
 
-#### 3.3.10 System Bell Override
+#### 3.3.11 System Bell Override
 
 `bell()` is overridden to be a no-op, preventing terminal beep sounds on notifications or focus changes.
 
@@ -482,6 +515,7 @@ Rules:
 ```
 
 **Interface:** `clean(raw_text) -> str` — calls `LLMBackend.complete()` with the cleanup prompt. Empty input is returned as-is.
+Internally this is passed as structured messages: a single `ChatMessage(role="user", content=prompt)`.
 
 **Retry:** Handled by the caller (`MeetingApp._clean_with_retry()`), not internally.
 
@@ -493,10 +527,11 @@ Rules:
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `complete` | `(prompt, context="") -> str` | Single-shot completion |
-| `stream` | `(prompt, context="") -> AsyncIterator[str]` | Token-by-token streaming |
+| `complete` | `(messages: list[ChatMessage], context="") -> str` | Single-shot completion from structured messages |
+| `stream` | `(messages: list[ChatMessage], context="") -> AsyncIterator[str]` | Token-by-token streaming from structured messages |
+| `close` | `() -> None` | Optional async resource cleanup hook |
 
-Both accept an optional `context` parameter used as the system message.
+`ChatMessage` is a dataclass with `role` and `content`. Backends also accept optional `context` used as a system/context instruction when supported.
 
 #### 3.8.1 Ollama Backend — `ollama_backend.py`
 
@@ -504,14 +539,14 @@ Both accept an optional `context` parameter used as the system message.
 - **API:** `/api/chat` (Ollama HTTP API)
 - **Complete:** `stream=False`, returns `data["message"]["content"]`
 - **Stream:** `stream=True`, parses NDJSON lines, yields `message.content`
-- **Message format:** System message (context) + user message
+- **Message format:** Optional system context + full structured conversation history
 
 #### 3.8.2 OpenAI Backend — `openai_backend.py`
 
 - **Transport:** `AsyncOpenAI` client from `openai` SDK
 - **Complete:** `chat.completions.create()`, returns `choices[0].message.content`
 - **Stream:** `chat.completions.create(stream=True)`, yields `delta.content` chunks
-- **Message format:** System message (context) + user message
+- **Message format:** Optional system context + full structured conversation history
 
 #### 3.8.3 Gemini Backend — `gemini_backend.py`
 
@@ -520,7 +555,7 @@ Both accept an optional `context` parameter used as the system message.
 - **Stream:** `aio.models.generate_content_stream()`, yields `chunk.text`
 - **Thinking Budget:** Maps level string to token budget:
   - `minimal` → 128, `low` → 1024, `medium` → 4096, `high` → 16384
-- **Message format:** Context as user message + model acknowledgment + user prompt (multi-turn contents list)
+- **Message format:** `list[types.Content]` built from structured history (`assistant` mapped to Gemini `model` role); optional context is prepended as a `user` content item
 
 #### 3.8.4 Backend Factory
 
@@ -532,7 +567,7 @@ Both accept an optional `context` parameter used as the system message.
 
 **Class:** `ChatManager`
 
-**Responsibility:** Maintain conversation history, build prompts with transcript context, and proxy LLM calls.
+**Responsibility:** Maintain conversation history, build transcript-aware system context, construct structured message lists, and proxy LLM calls.
 
 **System Prompt Template:**
 ```
@@ -551,15 +586,15 @@ MEETING TRANSCRIPT:
 
 **Chat History:**
 - Stored as `list[ChatMessage]` with `role` ("user"/"assistant") and `content`
-- Prepended to each prompt as `"User: ...\n\nAssistant: ..."`
+- Passed directly to backends as structured messages (no flattened role-prefixed text)
 - Clearable via `clear_history()` (transcript context preserved)
 
 **Methods:**
 
 | Method | Description |
 |--------|-------------|
-| `send_message(msg)` | Complete response via `LLMBackend.complete()` |
-| `stream_message(msg)` | Streaming response via `LLMBackend.stream()`, yields tokens |
+| `send_message(msg)` | Builds structured messages + transcript context, calls `LLMBackend.complete()` |
+| `stream_message(msg)` | Builds structured messages + transcript context, calls `LLMBackend.stream()` |
 | `add_transcript_segment(ts, text)` | Append to transcript context |
 | `clear_history()` | Clear chat history, keep transcript |
 
@@ -654,14 +689,16 @@ On shutdown (`action_quit`), chat history is saved to `{stem}_chat.md` alongside
 
 **Layout:** Title (`💬 Chat`) + `RichLog` (message log) + `Input` (docked bottom)
 
-**Message History:** Internally maintains `_messages: list[str]` to track all rendered messages, enabling full re-render after `RichLog.clear()`.
+**Message History:** Maintains `_messages: list[str]` (markup) and `_plain_messages: list[str]` (clipboard-friendly text).
 
 **Streaming Protocol:**
 1. `begin_assistant_stream()` — initialize `_stream_tokens` accumulator
-2. `append_stream_token(token)` — append token, `clear()` + re-render all history + in-progress text with cursor (▍)
+2. `append_stream_token(token)` — append token and re-render only when either threshold is reached (`8` tokens) or interval elapsed (`50 ms`)
 3. `end_assistant_stream()` — store final message, re-render without cursor
 
 **User Input:** `on_input_submitted` clears the input, displays the user message, and posts `ChatSubmitted` message (consumed by `MeetingApp`).
+
+**Clipboard Support:** `get_plain_text()` returns the full plain-text chat history.
 
 **Custom Message:** `ChatSubmitted(text)` — bubbles up to the app for LLM processing.
 
@@ -703,7 +740,8 @@ The application uses a single-process, single-event-loop architecture with strat
 | VAD inference | Thread pool | `run_in_executor()` |
 | Whisper inference | Thread pool | `run_in_executor()` |
 | LLM API calls | Main thread (async I/O) | `httpx` / SDK async clients |
-| Pipeline loop | Textual worker | `run_worker()` |
+| Pipeline loop | Textual worker | `run_worker()` capture + VAD only |
+| Segment processor | Main event loop task | `asyncio.create_task()` over bounded queue |
 | Timer | Textual interval | `set_interval(1.0)` |
 
 **Worker Usage:** The pipeline loop runs inside a Textual `run_worker(exclusive=True)` — meaning only one startup worker can exist at a time.
@@ -780,14 +818,14 @@ Created automatically if it does not exist (`mkdir(parents=True, exist_ok=True)`
 
 3. **Transcript pane shows both raw and clean text** — the clean version does not replace the raw. Over long sessions this doubles the display volume.
 
-4. **JSON writer rewrites the entire file** on each segment addition. This is I/O-intensive for very long meetings but ensures atomic, consistent state.
+4. **JSON writer is append-only JSONL** with immediate writes. This avoids whole-file rewrites and supports long sessions efficiently.
 
 5. **Transcript context in chat** uses a rough token estimate (4 chars/token). With `max_transcript_tokens=100,000`, this allows ~400 KB of transcript text before truncation from the beginning.
 
-6. **Chat streaming re-renders** the entire message history on each token. This is a workaround for Textual's `RichLog` not supporting in-place line updates. Performance may degrade with very long chat histories.
+6. **Chat streaming still re-renders history** because `RichLog` lacks in-place line updates, but updates are throttled/batched (every 8 tokens or 50 ms) to reduce render pressure.
 
 7. **VAD-internal `block_duration_ms` must match** a valid Silero frame size. At 16 kHz, valid values are 32 ms (512 samples), 64 ms (1024), or 96 ms (1536). Mismatches produce unreliable detection with a logged warning.
 
 8. **System bell is disabled** globally via `bell()` override to prevent audible notifications in terminal.
 
-9. **Gemini context** is passed as a user→model turn pair rather than a system instruction, as the `google-genai` SDK's `Contents` API requires explicit role-tagged messages.
+9. **Gemini context** is prepended as a `user` content item because the `google-genai` contents API expects explicit role-tagged message parts rather than OpenAI-style system fields.
