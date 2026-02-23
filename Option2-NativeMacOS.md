@@ -1,5 +1,7 @@
 # Option 2: Native macOS Menu Bar App — "MeetingCompanion.app"
 
+> Historical planning document. The active implemented project in this repository is `meeting-tui`.
+
 ## Overview
 
 A native macOS application that lives in the menu bar. When activated, it captures audio (microphone and/or system audio via BlackHole), transcribes using on-device models (Apple Speech framework or Whisper.cpp), cleans and processes transcription with a local LLM (MLX), and presents a floating overlay window with live transcript and chat interface.

@@ -1,5 +1,7 @@
 # Meeting TUI
 
+[![CI](https://github.com/dimanngo/meeting-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/dimanngo/meeting-companion/actions/workflows/ci.yml)
+
 A terminal-based meeting companion with live transcription and AI chat — all within your terminal.
 
 ```
@@ -39,6 +41,8 @@ A terminal-based meeting companion with live transcription and AI chat — all w
 ### 1. Install Prerequisites
 
 **Python 3.11+** is required.
+
+**CI-verified runtime matrix:** macOS + Linux on Python 3.11 and 3.12.
 
 **PortAudio** (audio capture library):
 
@@ -83,7 +87,7 @@ uv run meeting-tui
 meeting-tui
 ```
 
-On first launch, the app downloads and loads ML models (~144 MB total for the default `base` model).
+On first launch, the app downloads and loads ML models (~142 MB total for the default `base` model).
 You'll see progress in the terminal:
 
 ```
@@ -268,7 +272,7 @@ OPENAI_API_KEY=sk-...
 
 # Google Gemini
 GEMINI_API_KEY=...
-MEETING_TUI_GEMINI_MODEL=gemini-2.5-flash-preview
+MEETING_TUI_GEMINI_MODEL=gemini-3-flash-preview
 
 # Transcription
 MEETING_TUI_WHISPER_MODEL=base
@@ -315,7 +319,7 @@ export GEMINI_API_KEY="..."
 uv run meeting-tui --llm-backend gemini
 ```
 
-Gemini 3 Flash offers the best price/performance with a 1M token context window — long meetings fit entirely without truncation.
+This project defaults to `gemini-3-flash-preview` (configurable via `MEETING_TUI_GEMINI_MODEL`). See the official catalog for current models and versions: https://ai.google.dev/gemini-api/docs/models
 
 ---
 

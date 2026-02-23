@@ -52,7 +52,7 @@ class LLMConfig:
     openai_model: str = "gpt-4o-mini"
     # Gemini
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash-preview"
+    gemini_model: str = "gemini-3-flash-preview"
     gemini_thinking_level: str = "low"  # minimal, low, medium, high
 
 

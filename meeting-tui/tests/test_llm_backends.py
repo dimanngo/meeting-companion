@@ -170,7 +170,7 @@ class TestGeminiBackend:
             mock_response.text = "Hello from Gemini"
             mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
-            backend = GeminiBackend(api_key="test-key", model="gemini-2.5-flash-preview")
+            backend = GeminiBackend(api_key="test-key", model="gemini-3-flash-preview")
             result = await backend.complete([ChatMessage(role="user", content="Hello")])
 
         assert result == "Hello from Gemini"

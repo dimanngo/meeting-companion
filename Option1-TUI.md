@@ -1,5 +1,7 @@
 # Option 1: Pure Terminal UI (TUI) — "meeting-tui"
 
+> Historical planning document. The current implementation and source of truth are in `meeting-tui/README.md` and the `meeting-tui/src` code.
+
 ## Overview
 
 A single Python application with a rich split-pane terminal interface built with Textual. Captures microphone audio, transcribes in real-time using faster-whisper (local), cleans up transcription via LLM, and provides an interactive chat pane to query the meeting context — all within the terminal.

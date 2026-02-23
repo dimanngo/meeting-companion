@@ -13,7 +13,7 @@ class GeminiBackend(LLMBackend):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.5-flash-preview",
+        model: str = "gemini-3-flash-preview",
         thinking_level: str = "low",
     ):
         from google import genai

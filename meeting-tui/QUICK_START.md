@@ -3,7 +3,7 @@
 ## How to Run
 
 ```bash
-cd /Users/dima/_git/AI/meeting-companion/meeting-tui
+cd meeting-tui
 uv run meeting-tui
 ```
 
@@ -46,7 +46,7 @@ Models loaded. Starting app...
 If old behavior persists, clear the Python cache:
 
 ```bash
-cd /Users/dima/_git/AI/meeting-companion/meeting-tui
+cd meeting-tui
 find . -name "*.pyc" -delete
 find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
 uv run meeting-tui

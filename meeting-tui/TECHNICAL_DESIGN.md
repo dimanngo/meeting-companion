@@ -166,7 +166,7 @@ src/meeting_tui/
 **LLM Defaults:**
 - Ollama: `http://localhost:11434`, model `mistral`
 - OpenAI: model `gpt-4o-mini`
-- Gemini: model `gemini-2.5-flash-preview`, thinking level `low`
+- Gemini: model `gemini-3-flash-preview`, thinking level `low`
 
 **Environment Variable Mapping:**
 

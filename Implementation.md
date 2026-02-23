@@ -127,6 +127,8 @@ meeting-tui/
 
 ## Status Summary
 
+> Historical snapshot captured at the time this implementation phase was completed. For current status, run the test suite in the active codebase.
+
 | Phase | Status | Notes |
 |---|---|---|
 | Phase 1: Scaffolding & Audio | ✅ Complete | 15 tests passing |
