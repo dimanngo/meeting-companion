@@ -69,7 +69,7 @@ sudo dnf install portaudio-devel
 
 **For macOS (Recommended):**
 ```bash
-brew tap dimanngo/meeting-companion
+brew tap dimanngo/tools
 brew install meeting-tui
 ```
 *(This automatically installs PortAudio and Python dependencies)*

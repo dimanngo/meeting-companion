@@ -40,3 +40,17 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: meeting-tui/dist/
+
+  homebrew:
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    needs: pypi-publish
+    steps:
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: meeting-tui
+          homebrew-tap: dimanngo/homebrew-tools
+          download-url: https://github.com/dimanngo/meeting-companion/archive/refs/tags/${{ github.ref_name }}.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

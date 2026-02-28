@@ -29,7 +29,7 @@ Building real AI tools in the terminal. Shows streaming transcription, smart tex
 
 ```bash
 # macOS (Recommended)
-brew tap dimanngo/meeting-companion
+brew tap dimanngo/tools
 brew install meeting-tui
 
 # Linux / Python Users (requires PortAudio)
