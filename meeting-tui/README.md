@@ -105,14 +105,14 @@ Once the TUI appears, press **Ctrl+R** to start recording — it begins instantl
 1. **Launch the app:**
 
    ```bash
-   uv run meeting-tui --title "Sprint Planning"
+   meeting-tui --title "Sprint Planning"
    ```
 
 2. **Select your microphone** (if not using the default):
 
    ```bash
    # List available devices
-   uv run meeting-tui --list-devices
+   meeting-tui --list-devices
 
    # Output:
    #   [0] DG Microphone (channels: 1)
@@ -122,8 +122,8 @@ Once the TUI appears, press **Ctrl+R** to start recording — it begins instantl
    #   * = default device
 
    # Use a specific device by index or name (partial match)
-   uv run meeting-tui --device 0
-   uv run meeting-tui --device "MacBook"
+   meeting-tui --device 0
+   meeting-tui --device "MacBook"
    ```
 
 3. **Press `Ctrl+R`** to start recording. The status bar shows `🔴 Recording` with a running timer and a live audio level meter (`🎤 ████░░░░`).
@@ -191,16 +191,16 @@ Options:
 
 ```bash
 # Quick start with all defaults
-uv run meeting-tui
+meeting-tui
 
 # High-accuracy transcription with Gemini chat
-uv run meeting-tui --model small --llm-backend gemini --title "Board Meeting"
+meeting-tui --model small --llm-backend gemini --title "Board Meeting"
 
 # Save to a specific directory
-uv run meeting-tui --output ~/Documents/meetings --title "1-on-1"
+meeting-tui --output ~/Documents/meetings --title "1-on-1"
 
 # Use a specific mic with the smallest/fastest model
-uv run meeting-tui --device 0 --model tiny
+meeting-tui --device 0 --model tiny
 ```
 
 ### Whisper Model Sizes
@@ -300,21 +300,21 @@ ollama pull mistral      # 4.1 GB — good default
 # or: ollama pull llama3.1:8b  # 4.7 GB — latest quality
 
 # Run meeting-tui (uses Ollama by default)
-uv run meeting-tui
+meeting-tui
 ```
 
 #### OpenAI
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-uv run meeting-tui --llm-backend openai
+meeting-tui --llm-backend openai
 ```
 
 #### Google Gemini
 
 ```bash
 export GEMINI_API_KEY="..."
-uv run meeting-tui --llm-backend gemini
+meeting-tui --llm-backend gemini
 ```
 
 This project defaults to `gemini-3-flash-preview` (configurable via `MEETING_TUI_GEMINI_MODEL`). See the official catalog for current models and versions: https://ai.google.dev/gemini-api/docs/models
@@ -402,12 +402,12 @@ The JSONL file enables programmatic access for search, analytics, or re-processi
 | LLM errors / timeouts | Requests are retried 3 times with exponential backoff. Raw text is used if cleanup fails |
 | Slow startup on first run | First launch downloads Whisper model (~142 MB for `base`). Subsequent starts use the cache and load in ~6s |
 
-Meeting TUI uses Textual, which renders the interface to `stderr`. If you run `uv run meeting-tui 2> meeting-tui.log`, the UI is redirected into the file and won't be visible in your terminal.
+Meeting TUI uses Textual, which renders the interface to `stderr`. If you run `meeting-tui 2> meeting-tui.log`, the UI is redirected into the file and won't be visible in your terminal.
 
 For normal interactive use, run without stderr redirection:
 
 ```bash
-uv run meeting-tui
+meeting-tui
 ```
 
 Meeting TUI now writes application logs to a dedicated file:
