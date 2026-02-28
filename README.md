@@ -1,5 +1,20 @@
 # Meeting Companion
 
+```text
+  __  __           _   _             
+ |  \/  | ___  ___| |_(_)_ __   __ _ 
+ | |\/| |/ _ \/ _ \ __| | '_ \ / _` |
+ | |  | |  __/  __/ |_| | | | | (_| |
+ |_|  |_|\___|\___|\__|_|_| |_|\__, |
+                               |___/ 
+   ____                                  _             
+  / ___|___  _ __ ___  _ __   __ _ _ __ (_) ___  _ __  
+ | |   / _ \| '_ ` _ \| '_ \ / _` | '_ \| |/ _ \| '_ \ 
+ | |__| (_) | | | | | | |_) | (_| | | | | | (_) | | | |
+  \____\___/|_| |_| |_| .__/ \__,_|_| |_|_|\___/|_| |_|
+                      |_|
+```
+
 [![CI](https://github.com/dimanngo/meeting-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/dimanngo/meeting-companion/actions/workflows/ci.yml)
 
 A portfolio repository for building AI-assisted meeting tools, with a production-ready terminal app in the `meeting-tui` subproject.
