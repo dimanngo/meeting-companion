@@ -28,12 +28,15 @@ Building real AI tools in the terminal. Shows streaming transcription, smart tex
 ## Quick Start (Meeting TUI)
 
 ```bash
-cd meeting-tui
-uv sync
-uv run meeting-tui
+# macOS (Recommended)
+brew tap dimanngo/meeting-companion
+brew install meeting-tui
+
+# Linux / Python Users (requires PortAudio)
+pipx install meeting-tui
 ```
 
-For full setup requirements (PortAudio, API keys, backend selection), see [meeting-tui/README.md](meeting-tui/README.md).
+For full setup requirements (PortAudio for non-macOS users, API keys, backend selection), see [meeting-tui/README.md](meeting-tui/README.md).
 
 ## Supported Platforms
 

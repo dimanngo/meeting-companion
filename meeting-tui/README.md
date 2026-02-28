@@ -67,23 +67,21 @@ sudo dnf install portaudio-devel
 
 ### 2. Install Meeting TUI
 
+**For macOS (Recommended):**
 ```bash
-cd meeting-tui
+brew tap dimanngo/meeting-companion
+brew install meeting-tui
+```
+*(This automatically installs PortAudio and Python dependencies)*
 
-# Using uv (recommended — https://github.com/astral-sh/uv)
-uv sync
-
-# Or using pip
-pip install -e .
+**For Linux (or Python developers):**
+```bash
+pipx install meeting-tui
 ```
 
 ### 3. Run It
 
 ```bash
-# With uv
-uv run meeting-tui
-
-# Or if installed via pip
 meeting-tui
 ```
 
