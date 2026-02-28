@@ -38,7 +38,7 @@ For full setup requirements (PortAudio, API keys, backend selection), see [meeti
 ## Supported Platforms
 
 - CI-verified: macOS and Linux
-- CI Python matrix: 3.11, 3.12
+- CI Python matrix: minimal supported version
 
 ## License
 

@@ -2,26 +2,26 @@
 
 ## Listen to the meeting conversation
 
-- Activate microphone and listen to the conversation
-- Language: English only
-- Continuously transcribe and stash and persist the raw speech as a transcription.
+- Activate the microphone and listen to the conversation.
+- Language support: English only.
+- Continuously transcribe, stash, and persist the raw speech as a transcription.
 
 ## Speech analysis
 
-- Continuously process the raw transcription in terms of cleansing: remove errors, recognize the text.
-- Continuously persist ‘clean transcription’ in markdown format.
+- Continuously process the raw transcription to cleanse the data by removing errors and accurately recognizing the text.
+- Continuously persist the clean transcription in Markdown format.
 
 ## Real-time interaction
 
-Even during the meeting, the solution should allow real-time interaction with that context that is already available based on the past part of the meeting conversation. In other words, the idea of the solution is to be a real-time assistant **at the meeting**.
+Even while the meeting is ongoing, the solution should allow real-time interaction using the context generated from the conversation thus far. In other words, the primary goal of the solution is to serve as a real-time assistant **during the meeting**.
 
-- Example of usage: The user is attending the meeting. The system starts listening the conversation (Apple Notes has similar function, namely ‘Record Audio’; the idea is very close). On the background, the system is processing continuously the speech and adding to the context. The user should be able to access the ‘clean’ meeting conversation and in parallel run a separate conversation in a form of chat.
+- **Example use case:** The user is attending a meeting. The system starts listening to the conversation (similar to the "Record Audio" function in Apple Notes). In the background, the system continuously processes the speech and adds it to the context. The user should be able to access the clean meeting transcription while simultaneously interacting with a separate chat interface based on that ongoing context.
 
-## Technical considerations:
+## Technical considerations
 
-- user works on MacOS laptop
-- user is a power user, leverages different types of applications and UI/UX, including terminal (TUI).
+- The user operates on a macOS laptop.
+- The user is a power user who leverages various types of applications and interfaces, including Terminal-based User Interfaces (TUIs).
 
 # Ask
 
-Come with ideas for such a solution and come up with 3 different options.
+Brainstorm ideas for such a solution and propose 3 different architectural or design options.

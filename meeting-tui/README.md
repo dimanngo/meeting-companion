@@ -42,7 +42,7 @@ A terminal-based meeting companion with live transcription and AI chat — all w
 
 **Python 3.11+** is required.
 
-**CI-verified runtime matrix:** macOS + Linux on Python 3.11 and 3.12.
+**CI-verified runtime matrix:** macOS + Linux against the minimal supported Python version.
 
 **PortAudio** (audio capture library):
 
