@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import AsyncIterator, cast
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
 from openai._streaming import AsyncStream
+from openai.types.chat import ChatCompletionChunk
 
 from meeting_tui.llm.base import ChatMessage, LLMBackend
 
