@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
-
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widgets import Footer, Header
 
 from meeting_tui.audio.capture import AudioCapture
@@ -59,18 +59,21 @@ def create_llm_backend(config: AppConfig) -> LLMBackend:
     backend = config.llm.backend
     if backend == "ollama":
         from meeting_tui.llm.ollama_backend import OllamaBackend
+
         return OllamaBackend(
             base_url=config.llm.ollama_base_url,
             model=config.llm.ollama_model,
         )
     elif backend == "openai":
         from meeting_tui.llm.openai_backend import OpenAIBackend
+
         return OpenAIBackend(
             api_key=config.llm.openai_api_key,
             model=config.llm.openai_model,
         )
     elif backend == "gemini":
         from meeting_tui.llm.gemini_backend import GeminiBackend
+
         return GeminiBackend(
             api_key=config.llm.gemini_api_key,
             model=config.llm.gemini_model,
@@ -105,14 +108,18 @@ class MeetingApp(App):
         Binding("ctrl+l", "switch_focus", "Switch Focus", show=True),
         Binding("ctrl+t", "copy_transcript", "Copy Transcript", show=True),
         Binding("ctrl+y", "copy_chat", "Copy Chat", show=True),
-        Binding("ctrl+shift+left", "resize_left", "Widen Left", show=True, priority=True),
-        Binding("ctrl+shift+right", "resize_right", "Widen Right", show=True, priority=True),
+        Binding(
+            "ctrl+shift+left", "resize_left", "Widen Left", show=True, priority=True
+        ),
+        Binding(
+            "ctrl+shift+right", "resize_right", "Widen Right", show=True, priority=True
+        ),
         Binding("alt+shift+left", "resize_left", show=False, priority=True),
         Binding("alt+shift+right", "resize_right", show=False, priority=True),
         Binding("ctrl+s", "label_speaker", "Speaker Label", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
-    
+
     # Disable command palette (reduces keybinding conflicts)
     ENABLE_COMMAND_PALETTE = False
 
@@ -142,7 +149,7 @@ class MeetingApp(App):
         self._llm: LLMBackend | None = None
         self._transcript_writer: TranscriptWriter | None = None
         self._json_writer: JSONWriter | None = None
-        self._timer_handle: object | None = None
+        self._timer_handle: Timer | None = None
         self._silence_warned = False
         self._segment_queue: asyncio.Queue[SpeechSegment] | None = None
         self._segment_worker_task: asyncio.Task[None] | None = None
@@ -177,7 +184,9 @@ class MeetingApp(App):
         self._cleaner = TranscriptCleaner(self._llm)
         self._chat_manager = ChatManager(self._llm)
         if self._vad is None:
-            self._vad = VADProcessor(self.config.vad, sample_rate=self.config.audio.sample_rate)
+            self._vad = VADProcessor(
+                self.config.vad, sample_rate=self.config.audio.sample_rate
+            )
         self._transcript_writer = TranscriptWriter(
             self.config.persistence.output_dir,
             self.config.persistence.title,
@@ -196,11 +205,13 @@ class MeetingApp(App):
             status.model_name = self.config.llm.openai_model
         elif backend == "gemini":
             status.model_name = self.config.llm.gemini_model
-        
+
         # Show ready state
         status.activity = ""
         self._apply_panel_widths()
-        self.notify("Ready to record. Press Ctrl+R to start.", severity="information", timeout=3)
+        self.notify(
+            "Ready to record. Press Ctrl+R to start.", severity="information", timeout=3
+        )
 
     def _apply_panel_widths(self) -> None:
         """Apply current split widths to transcript and chat panes."""
@@ -233,7 +244,9 @@ class MeetingApp(App):
             self.notify("Starting recording...", severity="information", timeout=2)
         else:
             status.activity = "Preparing models..."
-            self.notify("Loading models, please wait...", severity="information", timeout=5)
+            self.notify(
+                "Loading models, please wait...", severity="information", timeout=5
+            )
 
         # Pre-load models in background, then start audio capture
         self.run_worker(self._load_and_start_pipeline(), name="startup", exclusive=True)
@@ -262,6 +275,7 @@ class MeetingApp(App):
             status.activity = "Loading VAD model (first run may download)..."
             self.refresh()
             try:
+                assert self._vad is not None
                 await self._load_off_loop(self._vad.load_model, "VAD")
             except Exception as e:
                 log.error("Failed to load VAD model: %s", e)
@@ -271,9 +285,12 @@ class MeetingApp(App):
                 return
 
             # Load Whisper model (downloads on first run)
-            status.activity = f"Loading Whisper '{self.config.transcription.model_size}' model..."
+            status.activity = (
+                f"Loading Whisper '{self.config.transcription.model_size}' model..."
+            )
             self.refresh()
             try:
+                assert self._engine is not None
                 await self._load_off_loop(self._engine.load_model, "Whisper")
             except Exception as e:
                 log.error("Failed to load Whisper model: %s", e)
@@ -283,17 +300,23 @@ class MeetingApp(App):
                 return
 
             self._models_ready = True
-            self.notify("Models loaded successfully!", severity="information", timeout=2)
+            self.notify(
+                "Models loaded successfully!", severity="information", timeout=2
+            )
 
         # Models loaded — start audio capture
         status.activity = "Starting microphone..."
-        self._audio_capture = AudioCapture(self.config.audio, loop=asyncio.get_event_loop())
+        self._audio_capture = AudioCapture(
+            self.config.audio, loop=asyncio.get_event_loop()
+        )
         try:
             self._audio_capture.start()
         except Exception as e:
             self._loading = False
             status.activity = ""
-            self.notify(f"Mic error: {e}. Check --list-devices.", severity="error", timeout=10)
+            self.notify(
+                f"Mic error: {e}. Check --list-devices.", severity="error", timeout=10
+            )
             log.error("Failed to start audio capture: %s", e)
             return
 
@@ -328,7 +351,7 @@ class MeetingApp(App):
         status.audio_level = 0.0
         status.no_speech_warning = False
 
-        if self._timer_handle:
+        if self._timer_handle is not None:
             self._timer_handle.stop()
             self._timer_handle = None
 
@@ -423,20 +446,25 @@ class MeetingApp(App):
         status = self.query_one(StatusBar)
         while self._recording and self._audio_capture:
             try:
-                chunk = await asyncio.wait_for(self._audio_capture.queue.get(), timeout=0.5)
+                chunk = await asyncio.wait_for(
+                    self._audio_capture.queue.get(), timeout=0.5
+                )
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
                 # Mic disconnection — attempt recovery
                 log.warning("Audio capture error: %s — attempting recovery", e)
-                self.notify("Mic disconnected. Attempting recovery...", severity="warning")
+                self.notify(
+                    "Mic disconnected. Attempting recovery...", severity="warning"
+                )
                 await self._attempt_mic_recovery()
                 continue
 
             # Update audio level indicator
-            rms = float(np.sqrt(np.mean(chunk ** 2)))
+            rms = float(np.sqrt(np.mean(chunk**2)))
             status.audio_level = min(rms * 10.0, 1.0)
 
+            assert self._vad is not None
             try:
                 segment = await self._vad.process_chunk(chunk)
             except Exception as e:
@@ -457,13 +485,15 @@ class MeetingApp(App):
                         self.notify(
                             "No audio signal detected for 15 s. "
                             "Check microphone permissions and input device (--list-devices).",
-                            severity="warning", timeout=10,
+                            severity="warning",
+                            timeout=10,
                         )
                     else:
                         self.notify(
                             "Audio signal present but no speech detected for 15 s. "
                             "Try speaking louder or adjust VAD threshold.",
-                            severity="warning", timeout=10,
+                            severity="warning",
+                            timeout=10,
                         )
 
     async def _attempt_mic_recovery(self) -> None:
@@ -489,6 +519,7 @@ class MeetingApp(App):
     async def _process_segment(self, segment) -> None:
         """Process a speech segment: transcribe + raw display, then queue cleanup."""
         # Transcribe
+        assert self._engine is not None
         try:
             result = await self._engine.transcribe(
                 segment.audio, segment.start_time, segment.end_time
@@ -546,6 +577,8 @@ class MeetingApp(App):
         transcript_pane.add_segment(entry.timestamp, clean_text)
 
         # Save to files
+        assert self._transcript_writer is not None
+        assert self._json_writer is not None
         self._transcript_writer.append(entry.timestamp, clean_text)
         self._json_writer.add_segment(
             start_time=entry.start_time,
@@ -558,6 +591,7 @@ class MeetingApp(App):
         )
 
         # Update chat context
+        assert self._chat_manager is not None
         self._chat_manager.add_transcript_segment(entry.timestamp, clean_text)
 
         # Update stats
@@ -572,6 +606,7 @@ class MeetingApp(App):
         delay = LLM_RETRY_DELAY
         for attempt in range(LLM_MAX_RETRIES):
             try:
+                assert self._cleaner is not None
                 return await self._cleaner.clean(raw_text)
             except Exception as e:
                 log.warning("LLM cleanup attempt %d failed: %s", attempt + 1, e)
@@ -579,7 +614,9 @@ class MeetingApp(App):
                     await asyncio.sleep(delay)
                     delay *= 2
         # All retries failed — return raw text
-        log.error("LLM cleanup failed after %d retries, using raw text", LLM_MAX_RETRIES)
+        log.error(
+            "LLM cleanup failed after %d retries, using raw text", LLM_MAX_RETRIES
+        )
         return raw_text
 
     async def on_chat_submitted(self, event: ChatSubmitted) -> None:
@@ -587,7 +624,9 @@ class MeetingApp(App):
         chat_pane = self.query_one(ChatPane)
 
         if self._loading:
-            chat_pane.add_assistant_message("⏳ Models are still loading, please wait...")
+            chat_pane.add_assistant_message(
+                "⏳ Models are still loading, please wait..."
+            )
             return
 
         delay = LLM_RETRY_DELAY
@@ -596,6 +635,7 @@ class MeetingApp(App):
             try:
                 status.activity = "AI is thinking..."
                 chat_pane.begin_assistant_stream()
+                assert self._chat_manager is not None
                 async for token in self._chat_manager.stream_message(event.text):
                     chat_pane.append_stream_token(token)
                 chat_pane.end_assistant_stream()
@@ -608,7 +648,9 @@ class MeetingApp(App):
                     delay *= 2
                 else:
                     status.activity = ""
-                    chat_pane.add_assistant_message(f"Error after {LLM_MAX_RETRIES} retries: {e}")
+                    chat_pane.add_assistant_message(
+                        f"Error after {LLM_MAX_RETRIES} retries: {e}"
+                    )
 
     def action_label_speaker(self) -> None:
         """Prompt for a speaker label to tag subsequent transcript segments."""
@@ -633,7 +675,7 @@ class MeetingApp(App):
             return
         if self._json_writer:
             self._json_writer.flush()
-        if self._transcript_writer:
+        if self._transcript_writer and self._json_writer:
             self.notify(
                 f"Exported to {self._transcript_writer.filepath} "
                 f"and {self._json_writer.filepath}"
@@ -655,7 +697,9 @@ class MeetingApp(App):
             self.notify("Transcript is empty.", severity="warning", timeout=2)
             return
         self.copy_to_clipboard(text)
-        self.notify("Transcript copied to clipboard.", severity="information", timeout=2)
+        self.notify(
+            "Transcript copied to clipboard.", severity="information", timeout=2
+        )
 
     def action_copy_chat(self) -> None:
         """Copy chat panel text to clipboard."""
@@ -690,7 +734,7 @@ class MeetingApp(App):
         if self._transcript_writer:
             self._transcript_writer.finalize()
         # Save chat history alongside transcript
-        if self._chat_manager and self._chat_manager.history:
+        if self._chat_manager is not None and self._chat_manager.history:
             self._save_chat_history()
         if self._llm:
             try:
@@ -707,6 +751,7 @@ class MeetingApp(App):
             self._transcript_writer.filepath.stem + "_chat.md"
         )
         lines = [f"# Chat History — {self.config.persistence.title}\n\n"]
+        assert self._chat_manager is not None
         for msg in self._chat_manager.history:
             prefix = "**You:**" if msg.role == "user" else "**AI:**"
             lines.append(f"{prefix} {msg.content}\n\n")

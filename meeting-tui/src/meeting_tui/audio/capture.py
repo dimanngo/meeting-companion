@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -23,10 +22,14 @@ class AudioCapture:
 
     _MAX_QUEUE_CHUNKS = 200
 
-    def __init__(self, config: AudioConfig, loop: asyncio.AbstractEventLoop | None = None):
+    def __init__(
+        self, config: AudioConfig, loop: asyncio.AbstractEventLoop | None = None
+    ):
         self.config = config
         self._loop = loop
-        self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=self._MAX_QUEUE_CHUNKS)
+        self._queue: asyncio.Queue[np.ndarray] = asyncio.Queue(
+            maxsize=self._MAX_QUEUE_CHUNKS
+        )
         self._stream: sd.InputStream | None = None
         self._running = False
         self._dropped_chunks = 0
@@ -37,7 +40,11 @@ class AudioCapture:
         return self._queue
 
     def _audio_callback(
-        self, indata: np.ndarray, frames: int, time_info: object, status: sd.CallbackFlags
+        self,
+        indata: np.ndarray,
+        frames: int,
+        time_info: object,
+        status: sd.CallbackFlags,
     ) -> None:
         """Called from the PortAudio thread for each audio block."""
         if status:
@@ -62,7 +69,9 @@ class AudioCapture:
                 logger.warning(
                     "Audio queue full; dropped %d chunk(s) in the last %.1f s",
                     self._dropped_chunks,
-                    now - self._last_drop_log_monotonic if self._last_drop_log_monotonic else 1.0,
+                    now - self._last_drop_log_monotonic
+                    if self._last_drop_log_monotonic
+                    else 1.0,
                 )
                 self._dropped_chunks = 0
                 self._last_drop_log_monotonic = now
@@ -103,5 +112,11 @@ class AudioCapture:
         result = []
         for i, dev in enumerate(devices):
             if dev["max_input_channels"] > 0:
-                result.append({"index": i, "name": dev["name"], "channels": dev["max_input_channels"]})
+                result.append(
+                    {
+                        "index": i,
+                        "name": dev["name"],
+                        "channels": dev["max_input_channels"],
+                    }
+                )
         return result

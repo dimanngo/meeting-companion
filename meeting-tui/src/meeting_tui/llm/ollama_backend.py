@@ -12,7 +12,9 @@ from meeting_tui.llm.base import ChatMessage, LLMBackend
 class OllamaBackend(LLMBackend):
     """Ollama local LLM backend using HTTP API."""
 
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "mistral"):
+    def __init__(
+        self, base_url: str = "http://localhost:11434", model: str = "mistral"
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0)
@@ -25,9 +27,11 @@ class OllamaBackend(LLMBackend):
         )
         response.raise_for_status()
         data = response.json()
-        return data["message"]["content"]
+        return str(data["message"]["content"])
 
-    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
+    async def stream(
+        self, messages: list[ChatMessage], context: str = ""
+    ) -> AsyncIterator[str]:
         payload = self._build_messages(messages, context)
         async with self._client.stream(
             "POST",

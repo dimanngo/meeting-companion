@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncIterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncIterator
 
 from meeting_tui.llm.base import ChatMessage
 

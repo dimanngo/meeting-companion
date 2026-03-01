@@ -32,7 +32,9 @@ class LLMBackend(ABC):
         ...
 
     @abstractmethod
-    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
+    async def stream(
+        self, messages: list[ChatMessage], context: str = ""
+    ) -> AsyncIterator[str]:
         """Stream a completion token-by-token.
 
         Args:

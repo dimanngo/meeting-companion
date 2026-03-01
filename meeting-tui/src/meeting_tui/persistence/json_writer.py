@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from pathlib import Path
 @dataclass
 class TranscriptSegment:
     """A single transcript segment with metadata."""
+
     segment_id: int
     start_time: float
     end_time: float

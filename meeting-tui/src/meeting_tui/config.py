@@ -22,7 +22,9 @@ class AudioConfig:
     device: int | str | None = None
     sample_rate: int = 16000
     channels: int = 1
-    block_duration_ms: int = 32  # Must produce a supported Silero VAD frame size (512/1024/1536 @ 16 kHz)
+    block_duration_ms: int = (
+        32  # Must produce a supported Silero VAD frame size (512/1024/1536 @ 16 kHz)
+    )
 
 
 @dataclass

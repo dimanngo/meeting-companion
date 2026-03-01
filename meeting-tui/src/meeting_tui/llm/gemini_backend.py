@@ -38,7 +38,9 @@ class GeminiBackend(LLMBackend):
         )
         return response.text or ""
 
-    async def stream(self, messages: list[ChatMessage], context: str = "") -> AsyncIterator[str]:
+    async def stream(
+        self, messages: list[ChatMessage], context: str = ""
+    ) -> AsyncIterator[str]:
         from google.genai import types
 
         contents = self._build_contents(messages, context)
@@ -47,11 +49,12 @@ class GeminiBackend(LLMBackend):
                 thinking_budget=self._thinking_budget(),
             ),
         )
-        async for chunk in self._client.aio.models.generate_content_stream(
+        stream = await self._client.aio.models.generate_content_stream(
             model=self.model,
             contents=contents,
             config=config,
-        ):
+        )
+        async for chunk in stream:
             if chunk.text:
                 yield chunk.text
 
@@ -67,16 +70,20 @@ class GeminiBackend(LLMBackend):
 
         contents = []
         if context:
-            contents.append(types.Content(
-                role="user",
-                parts=[types.Part(text=f"Context:\n{context}")],
-            ))
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[types.Part(text=f"Context:\n{context}")],
+                )
+            )
         for message in messages:
             role = "model" if message.role == "assistant" else "user"
-            contents.append(types.Content(
-                role=role,
-                parts=[types.Part(text=message.content)],
-            ))
+            contents.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part(text=message.content)],
+                )
+            )
         return contents
 
     async def close(self) -> None:

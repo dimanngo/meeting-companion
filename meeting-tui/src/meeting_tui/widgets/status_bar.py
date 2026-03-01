@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.widgets import Static
 
@@ -45,11 +44,13 @@ class StatusBar(Static):
             if self.no_speech_warning:
                 parts.append("⚠️ No speech")
 
-        parts.extend([
-            f"Words: {self.word_count:,}",
-            f"Segments: {self.segment_count}",
-            f"Model: {self.model_name}",
-        ])
+        parts.extend(
+            [
+                f"Words: {self.word_count:,}",
+                f"Segments: {self.segment_count}",
+                f"Model: {self.model_name}",
+            ]
+        )
 
         return " │ ".join(parts)
 

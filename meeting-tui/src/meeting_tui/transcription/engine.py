@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 @dataclass
 class TranscriptionResult:
     """Result of transcribing an audio segment."""
+
     text: str
     start_time: float
     end_time: float
@@ -58,6 +59,7 @@ class TranscriptionEngine:
         """Synchronous transcription."""
         if self._model is None:
             self.load_model()
+        assert self._model is not None
 
         segments, info = self._model.transcribe(
             audio,
@@ -77,7 +79,9 @@ class TranscriptionEngine:
             segment_count += 1
 
         text = " ".join(text_parts)
-        avg_confidence = (total_confidence / segment_count) if segment_count > 0 else 0.0
+        avg_confidence = (
+            (total_confidence / segment_count) if segment_count > 0 else 0.0
+        )
 
         return TranscriptionResult(
             text=text,

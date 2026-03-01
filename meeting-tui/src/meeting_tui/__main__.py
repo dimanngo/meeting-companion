@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+
 import click
 import sounddevice as sd
 
@@ -51,23 +52,37 @@ def _configure_file_logging(output_dir: str) -> str:
 
 
 @click.command()
-@click.option("--device", type=str, default=None, help="Audio input device index or name")
+@click.option(
+    "--device", type=str, default=None, help="Audio input device index or name"
+)
 @click.option(
     "--model",
     type=click.Choice(["tiny", "base", "small", "medium", "large-v3"]),
     default=None,
     help="Whisper model size for transcription",
 )
-@click.option("--output", type=click.Path(), default=None, help="Output directory for transcripts")
+@click.option(
+    "--output", type=click.Path(), default=None, help="Output directory for transcripts"
+)
 @click.option(
     "--llm-backend",
     type=click.Choice(["ollama", "openai", "gemini"]),
     default=None,
     help="LLM backend to use",
 )
-@click.option("--title", type=str, default=None, help="Meeting title for transcript files")
-@click.option("--list-devices", is_flag=True, help="List available audio input devices and exit")
-@click.option("--config", "config_path", type=click.Path(), default=None, help="Path to config file")
+@click.option(
+    "--title", type=str, default=None, help="Meeting title for transcript files"
+)
+@click.option(
+    "--list-devices", is_flag=True, help="List available audio input devices and exit"
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(),
+    default=None,
+    help="Path to config file",
+)
 def main(
     device: str | None,
     model: str | None,
@@ -93,7 +108,9 @@ def main(
             if resolved is not None:
                 cli_overrides.setdefault("audio", {})["device"] = resolved
             else:
-                click.echo(f"Error: No audio input device matching '{device}'. Use --list-devices.")
+                click.echo(
+                    f"Error: No audio input device matching '{device}'. Use --list-devices."
+                )
                 raise SystemExit(1)
     if model is not None:
         cli_overrides.setdefault("transcription", {})["model_size"] = model
@@ -162,7 +179,9 @@ def _print_devices() -> None:
     for i, dev in enumerate(devices):
         if dev["max_input_channels"] > 0:
             marker = " *" if i == sd.default.device[0] else ""
-            click.echo(f"  [{i}] {dev['name']} (channels: {dev['max_input_channels']}){marker}")
+            click.echo(
+                f"  [{i}] {dev['name']} (channels: {dev['max_input_channels']}){marker}"
+            )
     click.echo("\n  * = default device")
     click.echo("\nUse --device <index> to select a device.")
 

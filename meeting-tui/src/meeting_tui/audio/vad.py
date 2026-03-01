@@ -10,12 +10,14 @@ import numpy as np
 
 if TYPE_CHECKING:
     import onnxruntime
+
     from meeting_tui.config import VADConfig
 
 
 @dataclass
 class SpeechSegment:
     """A detected speech segment with its audio data."""
+
     audio: np.ndarray
     start_time: float  # seconds from recording start
     end_time: float
@@ -61,8 +63,9 @@ class VADProcessor:
         if self._session is not None:
             return
 
-        import onnxruntime
         from importlib.resources import files as pkg_files
+
+        import onnxruntime
 
         model_path = str(pkg_files("silero_vad.data").joinpath("silero_vad.onnx"))
 
@@ -85,6 +88,7 @@ class VADProcessor:
         """Get speech confidence for a single audio frame via ONNX Runtime."""
         if self._session is None:
             self.load_model()
+        assert self._session is not None
 
         audio = chunk.astype(np.float32).reshape(1, -1)
         # Prepend the rolling context window
@@ -98,7 +102,7 @@ class VADProcessor:
         out, self._onnx_state = self._session.run(None, ort_inputs)
 
         # Update context with the last _CONTEXT_SIZE samples
-        self._context = input_data[:, -self._CONTEXT_SIZE:]
+        self._context = input_data[:, -self._CONTEXT_SIZE :]
 
         return float(out.squeeze())
 
@@ -114,12 +118,15 @@ class VADProcessor:
             valid = self._VALID_FRAME_SIZES.get(self.sample_rate, set())
             if valid and len(chunk) not in valid:
                 import logging as _logging
+
                 _logging.getLogger(__name__).warning(
                     "Audio chunk size %d is NOT a supported Silero VAD frame size "
                     "for %d Hz (supported: %s). Speech detection will be unreliable! "
                     "Set audio.block_duration_ms so that sample_rate * block_duration_ms / 1000 "
                     "equals a supported size (e.g. 32 ms for 512 samples at 16 kHz).",
-                    len(chunk), self.sample_rate, sorted(valid),
+                    len(chunk),
+                    self.sample_rate,
+                    sorted(valid),
                 )
 
         confidence = await asyncio.get_running_loop().run_in_executor(
@@ -159,7 +166,8 @@ class VADProcessor:
 
             if (
                 self._max_segment_seconds > 0
-                and (current_time - self._segment_start_time) >= self._max_segment_seconds
+                and (current_time - self._segment_start_time)
+                >= self._max_segment_seconds
                 and self._current_segment
             ):
                 segment = SpeechSegment(

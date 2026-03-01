@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
 from textual.message import Message
-from textual.widgets import Static, RichLog
+from textual.widgets import RichLog, Static
 
 
 class TranscriptUpdated(Message):

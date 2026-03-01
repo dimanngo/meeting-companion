@@ -6,7 +6,7 @@ import time
 
 from textual.app import ComposeResult
 from textual.message import Message
-from textual.widgets import Static, RichLog, Input
+from textual.widgets import Input, RichLog, Static
 
 
 class ChatSubmitted(Message):
