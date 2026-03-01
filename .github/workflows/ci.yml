@@ -47,6 +47,18 @@ jobs:
         working-directory: meeting-tui
         run: uv sync --extra dev
 
+      - name: Lint (ruff)
+        working-directory: meeting-tui
+        run: uv run ruff check src/
+
+      - name: Format check (ruff)
+        working-directory: meeting-tui
+        run: uv run ruff format --check src/
+
+      - name: Type check (mypy)
+        working-directory: meeting-tui
+        run: uv run mypy src/
+
       - name: Run tests
         working-directory: meeting-tui
-        run: uv run pytest
+        run: uv run pytest --cov=meeting_tui --cov-report=term-missing
