@@ -43,7 +43,9 @@ class OpenAIBackend(LLMBackend):
                 yield chunk.choices[0].delta.content
 
     @staticmethod
-    def _build_messages(messages: list[ChatMessage], context: str) -> list[dict[str, str]]:
+    def _build_messages(
+        messages: list[ChatMessage], context: str
+    ) -> list[dict[str, str]]:
         payload: list[dict[str, str]] = []
         if context:
             payload.append({"role": "system", "content": context})
