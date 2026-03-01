@@ -1,0 +1,3 @@
+# .gitleaksignore
+# False positive for "truncate/summarize" string in Option3-WebServices.md
+a3739b55b4304dcf5594a6aebda8e1055fc8676a:Option3-WebServices.md:generic-api-key:270
