@@ -3,11 +3,16 @@ name: CI
 on:
   push:
     branches: ["main"]
+    paths-ignore:
+      - ".release-please-manifest.json"
+      - "meeting-tui/CHANGELOG.md"
+      - "meeting-tui/pyproject.toml"
+      - "meeting-tui/src/meeting_tui/__init__.py"
   pull_request:
     branches: ["main"]
 
 jobs:
-  test:
+  full-ci:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
